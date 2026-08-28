@@ -40,6 +40,7 @@ pub(super) struct FunctionMetrics {
     pub input_mutations: usize,
     pub input_mutation_threshold: usize,
     pub test_function: bool,
+    pub test_context: bool,
     pub assertions: usize,
     pub cognitive_complexity: usize,
     pub max_nesting: usize,
@@ -69,6 +70,7 @@ struct FunctionFrame {
     input_mutations: usize,
     input_mutation_threshold: usize,
     test_function: bool,
+    test_context: bool,
     assertions: usize,
     cognitive_complexity: usize,
     nesting: usize,
@@ -145,6 +147,8 @@ pub(super) struct FunctionInput {
 
 impl MetricCollector {
     pub fn start_function(&mut self, input: FunctionInput) {
+        let test_context =
+            input.test_function || self.frames.last().is_some_and(|parent| parent.test_context);
         let anonymous_depth = if input.name.is_none() {
             self.frames
                 .last()
@@ -169,6 +173,7 @@ impl MetricCollector {
             input_mutations: 0,
             input_mutation_threshold: input.input_mutation_threshold,
             test_function: input.test_function,
+            test_context,
             assertions: 0,
             cognitive_complexity: 0,
             nesting: 0,
@@ -210,6 +215,7 @@ impl MetricCollector {
             input_mutations: frame.input_mutations,
             input_mutation_threshold: frame.input_mutation_threshold,
             test_function: frame.test_function,
+            test_context: frame.test_context,
             assertions: frame.assertions,
             cognitive_complexity: frame.cognitive_complexity,
             max_nesting: frame.max_nesting,

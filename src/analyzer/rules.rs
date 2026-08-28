@@ -76,6 +76,7 @@ fn build_metrics(facts: &Facts, thin_wrappers: usize) -> AstMetrics {
 }
 
 fn assess_function(path: &str, function: &FunctionMetrics, findings: &mut Vec<Finding>) {
+    super::naming_rules::assess(path, function, findings);
     if function.lines > LONG_FUNCTION_LINES {
         let excess = function.lines - LONG_FUNCTION_LINES;
         findings.push(Finding::new(

@@ -83,11 +83,12 @@ parameter, or encountering any unresolved path blocks the whole atomic change.
 Blocked candidates appear as zero-point `suspicious-key-remap` review signals:
 they make the safety decision visible without changing the slop score.
 
-The CLI currently evaluates 61 finding types for TypeScript and 36 for Rust.
+The CLI currently evaluates 62 finding types for TypeScript and 37 for Rust.
 The local code checks shared by both languages are:
 
 - `long-function`, `complex-function`, and `deep-nesting`
-- `parameter-bundle`, `large-file`, and `vague-names`
+- `parameter-bundle`, `large-file`, `vague-names`, and
+  `generic-function-name`
 - `wrapper-cluster`
 - `boolean-soup`, `else-if-chain`, and `branch-fanout`
 - `exit-point-cluster`, `branch-dense-function`, and `nested-callbacks`
@@ -100,6 +101,14 @@ TypeScript additionally checks `nested-ternary`, `any-cluster`, and
 `unwrap`, `expect`, and panic-style exits with `panic-path-cluster`. The local
 flow-readability rules use conservative boundaries and emit one measured
 finding per function and rule.
+
+`generic-function-name` splits camelCase, PascalCase, and snake_case names into
+words and recognizes wholly generic verb/noun pairs such as `processData`,
+`handleRequest`, `doWork`, and `executeTask`. Very vague nouns are reported on
+smaller non-trivial bodies; boundary terms such as request, response, event,
+and message require substantially more flow. Thin wrappers, tests, compact
+framework adapters, and names containing domain vocabulary such as
+`processInvoiceData` remain quiet. The rule is review-only.
 
 `input-mutation` reports the first caller-owned mutation in TypeScript. Because
 Rust makes mutation explicit in the type system, it only reports functions that

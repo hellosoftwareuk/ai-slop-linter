@@ -17,8 +17,8 @@ use super::clone_detection;
 use super::core::{is_vague_name, FunctionInput, LineIndex, MetricCollector, ParsedFacts};
 use super::typescript_signals::{
     boolean_argument_count, call_chain_metrics, call_mutates_parameter, catch_returns_fallback,
-    is_assertion_call, parameter_names, simple_target_mutates_parameter, target_mutates_parameter,
-    test_callback_starts,
+    is_assertion_call, object_function_name, parameter_names, simple_target_mutates_parameter,
+    target_mutates_parameter, test_callback_starts,
 };
 
 pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
@@ -63,6 +63,7 @@ struct TypeScriptVisitor<'source> {
     metrics: MetricCollector,
     declarator_hints: Vec<Option<String>>,
     method_hints: Vec<Option<String>>,
+    property_hints: Vec<Option<String>>,
     parameter_scopes: Vec<Vec<String>>,
     test_callback_starts: HashSet<u32>,
     potential_key_remap: bool,
@@ -86,6 +87,7 @@ impl<'source> TypeScriptVisitor<'source> {
             metrics: MetricCollector::default(),
             declarator_hints: Vec::new(),
             method_hints: Vec::new(),
+            property_hints: Vec::new(),
             parameter_scopes: Vec::new(),
             test_callback_starts: HashSet::new(),
             potential_key_remap: false,
@@ -130,6 +132,7 @@ impl<'source> TypeScriptVisitor<'source> {
             .last_mut()
             .and_then(Option::take)
             .or_else(|| self.method_hints.last_mut().and_then(Option::take))
+            .or_else(|| self.property_hints.last_mut().and_then(Option::take))
     }
 
     fn record_fact(&mut self, kind: AstKind<'_>) {
@@ -308,6 +311,11 @@ impl<'source> TypeScriptVisitor<'source> {
         self.potential_key_remap |= super::typescript_key_remap::is_potential_property(property);
     }
 
+    fn enter_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'_>) {
+        self.property_hints.push(object_function_name(property));
+        self.record_fact(AstKind::ObjectProperty(property));
+    }
+
     fn record_assertion(&mut self, offset: u32) {
         self.metrics
             .facts
@@ -378,6 +386,7 @@ impl<'a> Visit<'a> for TypeScriptVisitor<'_> {
             AstKind::MethodDefinition(method) => self
                 .method_hints
                 .push(method.key.static_name().map(|name| name.into_owned())),
+            AstKind::ObjectProperty(property) => self.enter_object_property(property),
             AstKind::Function(function) => {
                 let context_name = self.take_context_name();
                 let test_function = self.test_callback_starts.remove(&function.span.start);
@@ -429,11 +438,22 @@ impl<'a> Visit<'a> for TypeScriptVisitor<'_> {
                 self.metrics.finish_function();
                 self.parameter_scopes.pop();
             }
+            other => self.leave_non_function(other),
+        }
+    }
+}
+
+impl TypeScriptVisitor<'_> {
+    fn leave_non_function(&mut self, kind: AstKind<'_>) {
+        match kind {
             AstKind::VariableDeclarator(_) => {
                 self.declarator_hints.pop();
             }
             AstKind::MethodDefinition(_) => {
                 self.method_hints.pop();
+            }
+            AstKind::ObjectProperty(_) => {
+                self.property_hints.pop();
             }
             AstKind::IfStatement(_)
             | AstKind::DoWhileStatement(_)

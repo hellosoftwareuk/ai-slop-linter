@@ -1,5 +1,5 @@
 use oxc_ast::ast::{
-    Argument, AssignmentTarget, CallExpression, Expression, FormalParameters,
+    Argument, AssignmentTarget, CallExpression, Expression, FormalParameters, ObjectProperty,
     SimpleAssignmentTarget, Statement,
 };
 use oxc_span::{GetSpan, Span};
@@ -19,6 +19,18 @@ const MUTATING_METHODS: &[&str] = &[
     "splice",
     "unshift",
 ];
+
+pub(super) fn object_function_name(property: &ObjectProperty<'_>) -> Option<String> {
+    if !property.method
+        && !matches!(
+            &property.value,
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+        )
+    {
+        return None;
+    }
+    property.key.static_name().map(|name| name.into_owned())
+}
 
 pub(super) fn parameter_names(parameters: &FormalParameters<'_>) -> Vec<String> {
     parameters

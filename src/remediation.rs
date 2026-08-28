@@ -33,6 +33,7 @@ const RULE_REMEDIATIONS: &[RuleRemediation] = &[
     RuleRemediation { rule: "parameter-bundle", guidance: "Introduce a meaningful parameter object or split responsibilities; do not hide unrelated values in a generic options bag." },
     RuleRemediation { rule: "large-file", guidance: "Split the file along cohesive domain responsibilities and keep the public entrypoint small and explicit." },
     RuleRemediation { rule: "vague-names", guidance: "Rename bindings for their domain meaning and role, avoiding generic placeholders that force readers to infer intent." },
+    RuleRemediation { rule: "generic-function-name", guidance: "Rename the function for the domain outcome it owns, using a precise action and subject such as calculateInvoiceTotal or schedulePayment instead of generic process, handle, do, or execute terminology." },
     RuleRemediation { rule: "wrapper-cluster", guidance: "Remove pass-through layers or consolidate them behind one abstraction that owns a real policy or transformation." },
     RuleRemediation { rule: "boolean-soup", guidance: "Name meaningful predicates, simplify equivalent logic, and use a decision table or policy function when combinations encode business rules." },
     RuleRemediation { rule: "else-if-chain", guidance: "Replace the serial chain with named strategies, a lookup table, or an explicit state/dispatch model where appropriate." },

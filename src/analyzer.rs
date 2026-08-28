@@ -4,6 +4,7 @@ mod core;
 mod fix_rules;
 mod hcl;
 mod hcl_rules;
+mod naming_rules;
 mod rules;
 mod rust;
 mod rust_signals;

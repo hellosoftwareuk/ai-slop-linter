@@ -1,4 +1,5 @@
 use std::{
+    cmp::{Ordering, Reverse},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -126,29 +127,51 @@ fn converge(
 }
 
 fn apply_candidates(source: &str, mut candidates: Vec<ProposedFix>) -> Result<(String, usize)> {
-    candidates.sort_unstable_by(|left, right| {
-        left.start
-            .cmp(&right.start)
-            .then_with(|| right.end.cmp(&left.end))
-            .then_with(|| left.rule.cmp(right.rule))
-    });
+    candidates.sort_unstable_by(compare_candidates);
 
-    let mut selected = Vec::with_capacity(candidates.len());
-    let mut occupied_until = 0;
+    let mut selected: Vec<ProposedFix> = Vec::with_capacity(candidates.len());
     for candidate in candidates {
         validate_candidate(source, &candidate)?;
-        if candidate.start >= occupied_until {
-            occupied_until = candidate.end;
+        if !overlaps_any(&candidate, &selected) {
             selected.push(candidate);
         }
     }
 
+    selected.sort_unstable_by_key(|candidate| candidate.start);
     let applied = selected.len();
     let mut output = source.to_owned();
     for candidate in selected.into_iter().rev() {
         output.replace_range(candidate.start..candidate.end, &candidate.replacement);
     }
     Ok((output, applied))
+}
+
+fn compare_candidates(left: &ProposedFix, right: &ProposedFix) -> Ordering {
+    (
+        fix_priority(left.rule),
+        left.start,
+        Reverse(left.end),
+        left.rule,
+    )
+        .cmp(&(
+            fix_priority(right.rule),
+            right.start,
+            Reverse(right.end),
+            right.rule,
+        ))
+}
+
+fn overlaps_any(candidate: &ProposedFix, selected: &[ProposedFix]) -> bool {
+    for existing in selected {
+        if candidate.end > existing.start && candidate.start < existing.end {
+            return true;
+        }
+    }
+    false
+}
+
+fn fix_priority(rule: &str) -> u8 {
+    u8::from(rule != "redundant-local-key-remap")
 }
 
 fn validate_candidate(source: &str, candidate: &ProposedFix) -> Result<()> {
@@ -245,5 +268,39 @@ mod tests {
         let (output, applied) = apply_candidates(source, fixes).expect("edits should apply");
         assert_eq!(output, "aXf");
         assert_eq!(applied, 1);
+    }
+
+    #[test]
+    fn key_remaps_win_over_overlapping_style_edits_without_reordering_offsets() {
+        let source = "old middle access";
+        let fixes = vec![
+            ProposedFix {
+                rule: "prefer-dot-property",
+                start: 11,
+                end: 17,
+                expected: "access".to_owned(),
+                replacement: "style".to_owned(),
+                line: 1,
+            },
+            ProposedFix {
+                rule: "redundant-local-key-remap",
+                start: 0,
+                end: 3,
+                expected: "old".to_owned(),
+                replacement: "new".to_owned(),
+                line: 1,
+            },
+            ProposedFix {
+                rule: "redundant-local-key-remap",
+                start: 11,
+                end: 17,
+                expected: "access".to_owned(),
+                replacement: "renamed".to_owned(),
+                line: 1,
+            },
+        ];
+        let (output, applied) = apply_candidates(source, fixes).expect("edits should apply");
+        assert_eq!(output, "new middle renamed");
+        assert_eq!(applied, 2);
     }
 }

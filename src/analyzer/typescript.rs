@@ -28,22 +28,25 @@ pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
     let parsed = Parser::new(&allocator, source, source_type).parse();
     let mut visitor = TypeScriptVisitor::new(source);
     if !parsed.panicked {
-        let semantic = parsed
-            .diagnostics
-            .is_empty()
-            .then(|| SemanticBuilder::new().build(&parsed.program));
         visitor.metrics.facts.top_level_statements = parsed.program.body.len();
         visitor.visit_program(&parsed.program);
+        let semantic = parsed.diagnostics.is_empty().then(|| {
+            SemanticBuilder::new()
+                .with_build_nodes(visitor.potential_key_remap)
+                .build(&parsed.program)
+        });
         if let Some(semantic) = semantic.filter(|result| result.diagnostics.is_empty()) {
-            let mut fixes = super::typescript_fixes::collect(
-                &parsed.program,
-                source,
-                semantic.semantic.scoping(),
-            );
+            let semantic = semantic.semantic;
+            let mut fixes =
+                super::typescript_fixes::collect(&parsed.program, source, semantic.scoping());
             fixes.extend(super::typescript_fixes_extended::collect(
                 &parsed.program,
                 source,
             ));
+            let key_remaps =
+                super::typescript_key_remap::collect(&parsed.program, source, &semantic);
+            fixes.extend(key_remaps.fixes);
+            visitor.metrics.facts.key_remaps = key_remaps.blocked;
             visitor.metrics.facts.proposed_fixes = fixes;
         }
     }
@@ -62,6 +65,7 @@ struct TypeScriptVisitor<'source> {
     method_hints: Vec<Option<String>>,
     parameter_scopes: Vec<Vec<String>>,
     test_callback_starts: HashSet<u32>,
+    potential_key_remap: bool,
 }
 
 struct FunctionStart {
@@ -84,6 +88,7 @@ impl<'source> TypeScriptVisitor<'source> {
             method_hints: Vec::new(),
             parameter_scopes: Vec::new(),
             test_callback_starts: HashSet::new(),
+            potential_key_remap: false,
         }
     }
 
@@ -279,21 +284,28 @@ impl<'source> TypeScriptVisitor<'source> {
 
     fn record_declaration_fact(&mut self, kind: AstKind<'_>) {
         match kind {
-            AstKind::BindingIdentifier(identifier) => {
-                let name = identifier.name.as_str();
-                if is_vague_name(name) {
-                    self.metrics
-                        .facts
-                        .vague_bindings
-                        .push((name.to_string(), self.lines.line(identifier.span.start)));
-                }
-            }
+            AstKind::BindingIdentifier(identifier) => self.record_binding_fact(identifier),
             AstKind::ImportDeclaration(_) => self.metrics.facts.imports += 1,
             AstKind::Class(_) => self.metrics.facts.classes += 1,
             AstKind::TSInterfaceDeclaration(_) => self.metrics.facts.interfaces += 1,
             AstKind::TSTypeAliasDeclaration(_) => self.metrics.facts.type_aliases += 1,
+            AstKind::ObjectProperty(property) => self.record_key_remap_candidate(property),
             _ => {}
         }
+    }
+
+    fn record_binding_fact(&mut self, identifier: &oxc_ast::ast::BindingIdentifier<'_>) {
+        let name = identifier.name.as_str();
+        if is_vague_name(name) {
+            self.metrics
+                .facts
+                .vague_bindings
+                .push((name.to_string(), self.lines.line(identifier.span.start)));
+        }
+    }
+
+    fn record_key_remap_candidate(&mut self, property: &oxc_ast::ast::ObjectProperty<'_>) {
+        self.potential_key_remap |= super::typescript_key_remap::is_potential_property(property);
     }
 
     fn record_assertion(&mut self, offset: u32) {

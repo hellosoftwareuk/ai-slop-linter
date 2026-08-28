@@ -1,6 +1,14 @@
 use crate::model::{CloneCandidate, ModuleDependency, ProposedFix};
 
 #[derive(Debug)]
+pub(super) struct KeyRemapSignal {
+    pub key: String,
+    pub value: String,
+    pub line: usize,
+    pub reason: String,
+}
+
+#[derive(Debug)]
 pub(super) struct HclBlockMetrics {
     pub block_type: String,
     pub label: String,
@@ -113,6 +121,7 @@ pub(super) struct Facts {
     pub terragrunt_config_reads: Vec<usize>,
     pub terragrunt_includes: Vec<usize>,
     pub proposed_fixes: Vec<ProposedFix>,
+    pub key_remaps: Vec<KeyRemapSignal>,
 }
 
 #[derive(Debug, Default)]

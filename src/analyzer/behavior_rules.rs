@@ -17,6 +17,29 @@ pub(super) fn assess_file(path: &str, facts: &Facts, findings: &mut Vec<Finding>
     assess_error_laundering(path, facts, findings);
     assess_empty_catches(path, facts, findings);
     assess_boolean_calls(path, facts, findings);
+    assess_key_remaps(path, facts, findings);
+}
+
+fn assess_key_remaps(path: &str, facts: &Facts, findings: &mut Vec<Finding>) {
+    let Some(first) = facts.key_remaps.first() else {
+        return;
+    };
+    findings.push(Finding::new(
+        "suspicious-key-remap",
+        Category::Readability,
+        0.0,
+        (path.to_owned(), first.line),
+        (
+            "Similar property and value names cross an observable boundary",
+            format!(
+                "{} mapping(s); first `{}: {}` was not auto-fixed because {}",
+                facts.key_remaps.len(),
+                first.key,
+                first.value,
+                first.reason
+            ),
+        ),
+    ));
 }
 
 fn assess_async_contract(path: &str, function: &FunctionMetrics, findings: &mut Vec<Finding>) {

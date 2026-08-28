@@ -17,7 +17,7 @@ slop src --fix
 
 Scans are read-only unless `--fix` is present. The fixer currently supports
 TypeScript and deliberately has no unsafe mode or configuration surface. It
-applies nineteen low-risk rewrites:
+applies twenty low-risk rewrites:
 
 - `prefer-const` only when Oxc's semantic binding graph proves one initialized
   `let` binding has no writes
@@ -50,8 +50,11 @@ applies nineteen low-risk rewrites:
 - `invert-empty-if` for direct statement-list branches with an empty first
   block and a non-empty braced else block
 - `empty-finally` for empty, comment-free finalizers when a catch remains
+- `redundant-local-key-remap` for similar property/value names such as
+  `{ action_id: actionId }`, but only when a closed-world semantic proof can
+  atomically rename the definition and every use to `{ actionId }`
 
-All nineteen also appear during an ordinary scan as findings with `fixable: true`
+All twenty also appear during an ordinary scan as findings with `fixable: true`
 in JSON and `fixable with --fix` in text. `--fix` stages byte-range edits in
 memory, rejects stale ranges, never applies overlapping ranges in the same pass,
 reparses every result, writes each changed file atomically, rolls earlier files
@@ -70,7 +73,17 @@ findings, unsafe assertions, complex flow, input mutation, async behavior,
 clones, and naming findings remain review-only because changing them requires
 human judgment.
 
-The CLI currently evaluates 59 finding types for TypeScript and 36 for Rust.
+Key-remap fixes are deliberately stricter than textual matching. The Oxc
+semantic graph must prove a function-local `const` object has no type contract,
+reassignment, untracked alias, dynamic/reflection use, spread, collision, or
+escape. It follows nested objects, direct `const` aliases, containment, static
+dot/bracket reads, and a single untyped local-helper call. Passing or returning
+the object, serializing it, sending it to an API, using a typed owner or helper
+parameter, or encountering any unresolved path blocks the whole atomic change.
+Blocked candidates appear as zero-point `suspicious-key-remap` review signals:
+they make the safety decision visible without changing the slop score.
+
+The CLI currently evaluates 61 finding types for TypeScript and 36 for Rust.
 The local code checks shared by both languages are:
 
 - `long-function`, `complex-function`, and `deep-nesting`

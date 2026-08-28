@@ -25,6 +25,8 @@ const RULE_REMEDIATIONS: &[RuleRemediation] = &[
     RuleRemediation { rule: "collapsible-else-if", guidance: "Flatten an else block only when its sole statement is an if and no comments would be displaced." },
     RuleRemediation { rule: "invert-empty-if", guidance: "Invert a direct statement-list condition whose first block is empty and move its non-empty else block into the active branch." },
     RuleRemediation { rule: "empty-finally", guidance: "Remove a structurally empty, comment-free finally clause only when the try statement retains its catch handler." },
+    RuleRemediation { rule: "redundant-local-key-remap", guidance: "Rename the closed local property and every statically proven read as one atomic change; do not alter API, serialization, database, reflection, typed, returned, or otherwise observable keys." },
+    RuleRemediation { rule: "suspicious-key-remap", guidance: "Decide whether the key is an intentional wire, API, database, framework, or compatibility contract. Preserve it when externally observable; simplify it only after proving every producer and consumer changes together." },
     RuleRemediation { rule: "long-function", guidance: "Extract cohesive named operations around domain steps, keeping data ownership and the public contract explicit." },
     RuleRemediation { rule: "complex-function", guidance: "Flatten control flow with guard clauses and extract decision policies into named, independently testable functions." },
     RuleRemediation { rule: "deep-nesting", guidance: "Replace nested branches with early exits or extracted operations so each scope has one clear responsibility." },

@@ -12,6 +12,8 @@ mod typescript;
 mod typescript_fix_context;
 mod typescript_fixes;
 mod typescript_fixes_extended;
+mod typescript_key_remap;
+mod typescript_key_remap_flow;
 mod typescript_signals;
 
 use std::{

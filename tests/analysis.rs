@@ -57,6 +57,8 @@ mod fixes;
 mod flow;
 #[path = "analysis/hcl.rs"]
 mod hcl;
+#[path = "analysis/key_remaps.rs"]
+mod key_remaps;
 #[path = "analysis/repository.rs"]
 mod repository;
 #[path = "analysis/signals.rs"]

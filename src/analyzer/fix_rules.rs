@@ -124,6 +124,12 @@ const SAFE_FIX_RULES: &[SafeFixRule] = &[
         message: "Empty finally blocks add no cleanup behavior",
         noun: "finally block",
     },
+    SafeFixRule {
+        rule: "redundant-local-key-remap",
+        category: Category::Readability,
+        message: "Closed local objects translate similar property names",
+        noun: "key remap edit",
+    },
 ];
 
 pub(super) fn assess(path: &str, facts: &Facts, findings: &mut Vec<Finding>) {

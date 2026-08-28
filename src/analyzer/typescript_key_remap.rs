@@ -86,9 +86,15 @@ pub(super) fn collect(
                     continue;
                 }
                 let mut unique = HashSet::new();
+                let group = property.span.start;
                 for edit in edits {
                     if unique.insert((edit.span.start, edit.span.end)) {
-                        context.propose("redundant-local-key-remap", edit.span, edit.replacement);
+                        context.propose_grouped(
+                            "redundant-local-key-remap",
+                            edit.span,
+                            edit.replacement,
+                            group,
+                        );
                     }
                 }
             }
@@ -258,7 +264,7 @@ fn bounded_edit_distance(left: &str, right: &str, limit: usize) -> Option<usize>
         .then_some(distances[left.len()][right.len()])
 }
 
-fn has_direct_eval(semantic: &Semantic<'_>) -> bool {
+pub(super) fn has_direct_eval(semantic: &Semantic<'_>) -> bool {
     semantic.nodes().iter().any(|node| {
         matches!(
             node.kind(),

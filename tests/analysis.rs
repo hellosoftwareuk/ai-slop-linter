@@ -61,6 +61,8 @@ mod hcl;
 mod key_remaps;
 #[path = "analysis/naming.rs"]
 mod naming;
+#[path = "analysis/refactors.rs"]
+mod refactors;
 #[path = "analysis/repository.rs"]
 mod repository;
 #[path = "analysis/signals.rs"]

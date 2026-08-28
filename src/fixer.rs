@@ -128,12 +128,29 @@ fn converge(
 
 fn apply_candidates(source: &str, mut candidates: Vec<ProposedFix>) -> Result<(String, usize)> {
     candidates.sort_unstable_by(compare_candidates);
+    for candidate in &candidates {
+        validate_candidate(source, candidate)?;
+    }
 
+    let mut candidates: Vec<Option<ProposedFix>> = candidates.into_iter().map(Some).collect();
     let mut selected: Vec<ProposedFix> = Vec::with_capacity(candidates.len());
-    for candidate in candidates {
-        validate_candidate(source, &candidate)?;
-        if !overlaps_any(&candidate, &selected) {
-            selected.push(candidate);
+    for index in 0..candidates.len() {
+        let Some(candidate) = candidates[index].take() else {
+            continue;
+        };
+        let mut batch = vec![candidate];
+        if let Some(group) = batch[0].group {
+            for pending in candidates.iter_mut().skip(index + 1) {
+                if pending
+                    .as_ref()
+                    .is_some_and(|item| item.rule == batch[0].rule && item.group == Some(group))
+                {
+                    batch.push(pending.take().expect("grouped candidate exists"));
+                }
+            }
+        }
+        if batch_is_disjoint(&batch, &selected) {
+            selected.extend(batch);
         }
     }
 
@@ -144,6 +161,12 @@ fn apply_candidates(source: &str, mut candidates: Vec<ProposedFix>) -> Result<(S
         output.replace_range(candidate.start..candidate.end, &candidate.replacement);
     }
     Ok((output, applied))
+}
+
+fn batch_is_disjoint(batch: &[ProposedFix], selected: &[ProposedFix]) -> bool {
+    batch.iter().enumerate().all(|(index, candidate)| {
+        !overlaps_any(candidate, selected) && !overlaps_any(candidate, &batch[..index])
+    })
 }
 
 fn compare_candidates(left: &ProposedFix, right: &ProposedFix) -> Ordering {
@@ -171,7 +194,11 @@ fn overlaps_any(candidate: &ProposedFix, selected: &[ProposedFix]) -> bool {
 }
 
 fn fix_priority(rule: &str) -> u8 {
-    u8::from(rule != "redundant-local-key-remap")
+    match rule {
+        "redundant-local-key-remap" | "single-use-local-alias" => 0,
+        "else-after-exit" | "terminal-guard-clause" | "duplicate-branch-body" => 2,
+        _ => 1,
+    }
 }
 
 fn validate_candidate(source: &str, candidate: &ProposedFix) -> Result<()> {
@@ -250,6 +277,7 @@ mod tests {
         let fixes = vec![
             ProposedFix {
                 rule: "outer",
+                group: None,
                 start: 1,
                 end: 5,
                 expected: "bcde".to_owned(),
@@ -258,6 +286,7 @@ mod tests {
             },
             ProposedFix {
                 rule: "inner",
+                group: None,
                 start: 2,
                 end: 4,
                 expected: "cd".to_owned(),
@@ -276,6 +305,7 @@ mod tests {
         let fixes = vec![
             ProposedFix {
                 rule: "prefer-dot-property",
+                group: None,
                 start: 11,
                 end: 17,
                 expected: "access".to_owned(),
@@ -284,6 +314,7 @@ mod tests {
             },
             ProposedFix {
                 rule: "redundant-local-key-remap",
+                group: Some(1),
                 start: 0,
                 end: 3,
                 expected: "old".to_owned(),
@@ -292,6 +323,7 @@ mod tests {
             },
             ProposedFix {
                 rule: "redundant-local-key-remap",
+                group: Some(1),
                 start: 11,
                 end: 17,
                 expected: "access".to_owned(),
@@ -302,5 +334,42 @@ mod tests {
         let (output, applied) = apply_candidates(source, fixes).expect("edits should apply");
         assert_eq!(output, "new middle renamed");
         assert_eq!(applied, 2);
+    }
+
+    #[test]
+    fn overlapping_group_is_skipped_atomically() {
+        let source = "alias and use";
+        let fixes = vec![
+            ProposedFix {
+                rule: "outer",
+                group: None,
+                start: 0,
+                end: 9,
+                expected: "alias and".to_owned(),
+                replacement: "kept".to_owned(),
+                line: 1,
+            },
+            ProposedFix {
+                rule: "grouped",
+                group: Some(7),
+                start: 0,
+                end: 5,
+                expected: "alias".to_owned(),
+                replacement: String::new(),
+                line: 1,
+            },
+            ProposedFix {
+                rule: "grouped",
+                group: Some(7),
+                start: 10,
+                end: 13,
+                expected: "use".to_owned(),
+                replacement: "source".to_owned(),
+                line: 1,
+            },
+        ];
+        let (output, applied) = apply_candidates(source, fixes).expect("edits should apply");
+        assert_eq!(output, "kept use");
+        assert_eq!(applied, 1);
     }
 }

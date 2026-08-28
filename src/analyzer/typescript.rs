@@ -3,7 +3,7 @@ use std::{collections::HashSet, path::Path};
 use anyhow::Result;
 use oxc_allocator::Allocator;
 use oxc_ast::{
-    ast::{Argument, Expression, FormalParameters, FunctionBody, IfStatement, Statement, TSType},
+    ast::{Argument, Expression, FunctionBody, Statement},
     AstKind,
 };
 use oxc_ast_visit::Visit;
@@ -16,8 +16,9 @@ use crate::model::{DependencyKind, Language, ModuleDependency};
 use super::clone_detection;
 use super::core::{is_vague_name, FunctionInput, LineIndex, MetricCollector, ParsedFacts};
 use super::typescript_signals::{
-    boolean_argument_count, call_chain_metrics, call_mutates_parameter, catch_returns_fallback,
-    is_assertion_call, object_function_name, parameter_names, simple_target_mutates_parameter,
+    block_body_is_blank, boolean_argument_count, boolean_parameter_count, call_chain_metrics,
+    call_mutates_parameter, catch_returns_fallback, else_if_conditions, is_assertion_call,
+    object_function_name, parameter_names, simple_target_mutates_parameter,
     target_mutates_parameter, test_callback_starts,
 };
 
@@ -32,7 +33,7 @@ pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
         visitor.visit_program(&parsed.program);
         let semantic = parsed.diagnostics.is_empty().then(|| {
             SemanticBuilder::new()
-                .with_build_nodes(visitor.potential_key_remap)
+                .with_build_nodes(visitor.potential_key_remap || visitor.potential_local_alias)
                 .build(&parsed.program)
         });
         if let Some(semantic) = semantic.filter(|result| result.diagnostics.is_empty()) {
@@ -42,6 +43,15 @@ pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
             fixes.extend(super::typescript_fixes_extended::collect(
                 &parsed.program,
                 source,
+            ));
+            fixes.extend(super::typescript_refactors::collect_structural(
+                &parsed.program,
+                source,
+            ));
+            fixes.extend(super::typescript_refactors::collect_semantic(
+                &parsed.program,
+                source,
+                &semantic,
             ));
             let key_remaps =
                 super::typescript_key_remap::collect(&parsed.program, source, &semantic);
@@ -67,6 +77,7 @@ struct TypeScriptVisitor<'source> {
     parameter_scopes: Vec<Vec<String>>,
     test_callback_starts: HashSet<u32>,
     potential_key_remap: bool,
+    potential_local_alias: bool,
 }
 
 struct FunctionStart {
@@ -91,6 +102,7 @@ impl<'source> TypeScriptVisitor<'source> {
             parameter_scopes: Vec::new(),
             test_callback_starts: HashSet::new(),
             potential_key_remap: false,
+            potential_local_alias: false,
         }
     }
 
@@ -366,6 +378,13 @@ impl<'a> Visit<'a> for TypeScriptVisitor<'_> {
     fn enter_node(&mut self, kind: AstKind<'a>) {
         match kind {
             AstKind::VariableDeclarator(declaration) => {
+                self.potential_local_alias |= declaration.type_annotation.is_none()
+                    && !declaration.definite
+                    && matches!(
+                        declaration.id,
+                        oxc_ast::ast::BindingPattern::BindingIdentifier(_)
+                    )
+                    && matches!(declaration.init, Some(Expression::Identifier(_)));
                 let direct_function = declaration.init.as_ref().is_some_and(|expression| {
                     matches!(
                         expression,
@@ -468,38 +487,6 @@ impl TypeScriptVisitor<'_> {
             _ => {}
         }
     }
-}
-
-fn boolean_parameter_count(parameters: &FormalParameters<'_>) -> usize {
-    parameters
-        .items
-        .iter()
-        .filter(|parameter| {
-            parameter
-                .type_annotation
-                .as_ref()
-                .is_some_and(|annotation| {
-                    matches!(annotation.type_annotation, TSType::TSBooleanKeyword(_))
-                })
-        })
-        .count()
-}
-
-fn block_body_is_blank(source: &str, span: Span) -> bool {
-    source
-        .get(span.start as usize..span.end as usize)
-        .and_then(|block| block.strip_prefix('{')?.strip_suffix('}'))
-        .is_some_and(|body| body.trim().is_empty())
-}
-
-fn else_if_conditions(statement: &IfStatement<'_>) -> usize {
-    let mut conditions = 1;
-    let mut alternate = statement.alternate.as_ref();
-    while let Some(Statement::IfStatement(next)) = alternate {
-        conditions += 1;
-        alternate = next.alternate.as_ref();
-    }
-    conditions
 }
 
 fn is_thin_wrapper(body: &FunctionBody<'_>, parameter_count: usize) -> bool {

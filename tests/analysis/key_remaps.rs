@@ -37,9 +37,11 @@ function render(actionId: string): void {
 
     let summary = fixer::apply(directory.path(), &[analysis])?;
     assert_eq!(summary.files_changed, 1);
-    assert_eq!(summary.applied, 4, "summary: {summary:?}");
+    assert_eq!(summary.applied, 7, "summary: {summary:?}");
     let fixed = fs::read_to_string(&path)?;
     assert!(fixed.contains("{ actions: { actionId } }"));
+    assert!(!fixed.contains("const alias"));
+    assert!(fixed.contains("const envelope = { payload };"));
     assert!(fixed.contains("envelope.payload.actions.actionId"));
     assert_eq!(
         fixed.matches("envelope.payload.actions.actionId").count(),

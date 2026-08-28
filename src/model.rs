@@ -145,6 +145,7 @@ impl Finding {
 #[derive(Debug, Clone)]
 pub struct ProposedFix {
     pub rule: &'static str,
+    pub group: Option<u32>,
     pub start: usize,
     pub end: usize,
     pub expected: String,

@@ -1,6 +1,6 @@
 use oxc_ast::ast::{
-    Argument, AssignmentTarget, CallExpression, Expression, FormalParameters, ObjectProperty,
-    SimpleAssignmentTarget, Statement,
+    Argument, AssignmentTarget, CallExpression, Expression, FormalParameters, IfStatement,
+    ObjectProperty, SimpleAssignmentTarget, Statement, TSType,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -43,6 +43,38 @@ pub(super) fn parameter_names(parameters: &FormalParameters<'_>) -> Vec<String> 
                 .map(|name| name.to_string())
         })
         .collect()
+}
+
+pub(super) fn boolean_parameter_count(parameters: &FormalParameters<'_>) -> usize {
+    parameters
+        .items
+        .iter()
+        .filter(|parameter| {
+            parameter
+                .type_annotation
+                .as_ref()
+                .is_some_and(|annotation| {
+                    matches!(annotation.type_annotation, TSType::TSBooleanKeyword(_))
+                })
+        })
+        .count()
+}
+
+pub(super) fn block_body_is_blank(source: &str, span: Span) -> bool {
+    source
+        .get(span.start as usize..span.end as usize)
+        .and_then(|block| block.strip_prefix('{')?.strip_suffix('}'))
+        .is_some_and(|body| body.trim().is_empty())
+}
+
+pub(super) fn else_if_conditions(statement: &IfStatement<'_>) -> usize {
+    let mut conditions = 1;
+    let mut alternate = statement.alternate.as_ref();
+    while let Some(Statement::IfStatement(next)) = alternate {
+        conditions += 1;
+        alternate = next.alternate.as_ref();
+    }
+    conditions
 }
 
 pub(super) fn boolean_argument_count(arguments: &[Argument<'_>]) -> usize {

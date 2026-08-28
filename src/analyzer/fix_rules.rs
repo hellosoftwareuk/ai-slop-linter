@@ -130,6 +130,30 @@ const SAFE_FIX_RULES: &[SafeFixRule] = &[
         message: "Closed local objects translate similar property names",
         noun: "key remap edit",
     },
+    SafeFixRule {
+        rule: "else-after-exit",
+        category: Category::Complexity,
+        message: "Else blocks obscure the straight-line path after an exit",
+        noun: "else block",
+    },
+    SafeFixRule {
+        rule: "terminal-guard-clause",
+        category: Category::Complexity,
+        message: "Terminal branches hide a function's main path",
+        noun: "terminal branch",
+    },
+    SafeFixRule {
+        rule: "single-use-local-alias",
+        category: Category::Readability,
+        message: "Single-use aliases add a name without adding meaning",
+        noun: "local alias",
+    },
+    SafeFixRule {
+        rule: "duplicate-branch-body",
+        category: Category::Complexity,
+        message: "Adjacent conditions repeat an identical branch body",
+        noun: "branch pair",
+    },
 ];
 
 pub(super) fn assess(path: &str, facts: &Facts, findings: &mut Vec<Finding>) {
@@ -169,6 +193,8 @@ fn plural_noun(noun: &str, count: usize) -> (&str, &'static str) {
     match noun {
         "property" => ("properties", ""),
         "property access" => ("property accesses", ""),
+        "terminal branch" => ("terminal branches", ""),
+        "local alias" => ("local aliases", ""),
         _ => (noun, "s"),
     }
 }
@@ -181,6 +207,8 @@ mod tests {
     fn finding_evidence_pluralizes_property_terms() {
         assert_eq!(plural_noun("property", 2), ("properties", ""));
         assert_eq!(plural_noun("property access", 2), ("property accesses", ""));
+        assert_eq!(plural_noun("terminal branch", 2), ("terminal branches", ""));
+        assert_eq!(plural_noun("local alias", 2), ("local aliases", ""));
         assert_eq!(plural_noun("binding", 2), ("binding", "s"));
     }
 }

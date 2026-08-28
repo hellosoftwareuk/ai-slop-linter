@@ -72,7 +72,7 @@ fn folder_scan_discovers_both_languages() {
         .iter()
         .filter(|analysis| analysis.language == Language::Rust)
         .count();
-    assert_eq!((typescript, rust), (6, 2));
+    assert_eq!((typescript, rust), (9, 2));
 }
 
 #[test]

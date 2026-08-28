@@ -23,6 +23,26 @@ impl<'source, 'ast> FixContext<'source, 'ast> {
     }
 
     pub(super) fn propose(&mut self, rule: &'static str, span: Span, replacement: String) {
+        self.propose_with_group(rule, span, replacement, None);
+    }
+
+    pub(super) fn propose_grouped(
+        &mut self,
+        rule: &'static str,
+        span: Span,
+        replacement: String,
+        group: u32,
+    ) {
+        self.propose_with_group(rule, span, replacement, Some(group));
+    }
+
+    fn propose_with_group(
+        &mut self,
+        rule: &'static str,
+        span: Span,
+        replacement: String,
+        group: Option<u32>,
+    ) {
         if span.is_empty()
             || self.has_comment(span)
             || replacement == self.slice(span).unwrap_or("")
@@ -34,6 +54,7 @@ impl<'source, 'ast> FixContext<'source, 'ast> {
         };
         self.fixes.push(ProposedFix {
             rule,
+            group,
             start: span.start as usize,
             end: span.end as usize,
             expected,
@@ -44,6 +65,10 @@ impl<'source, 'ast> FixContext<'source, 'ast> {
 
     pub(super) fn slice(&self, span: Span) -> Option<&'source str> {
         self.source.get(span.start as usize..span.end as usize)
+    }
+
+    pub(super) fn source(&self) -> &'source str {
+        self.source
     }
 
     pub(super) fn has_comment(&self, span: Span) -> bool {

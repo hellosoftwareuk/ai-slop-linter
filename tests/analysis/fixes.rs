@@ -484,6 +484,7 @@ fn declaration_files_are_never_rewritten() {
     .expect("declaration should analyze");
     analysis.proposed_fixes.push(slop::model::ProposedFix {
         rule: "prefer-const",
+        group: None,
         start: 8,
         end: 11,
         expected: "let".to_owned(),

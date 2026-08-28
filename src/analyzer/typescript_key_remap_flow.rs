@@ -305,10 +305,10 @@ fn direct_const_alias(
     let AstKind::VariableDeclarator(declarator) = nodes.kind(parent_id) else {
         return Ok(None);
     };
-    if !declarator
+    if declarator
         .init
         .as_ref()
-        .is_some_and(|init| init.span() == nodes.kind(reference_id).span())
+        .is_none_or(|init| init.span() != nodes.kind(reference_id).span())
     {
         return Ok(None);
     }

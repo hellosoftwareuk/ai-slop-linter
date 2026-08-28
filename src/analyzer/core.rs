@@ -1,6 +1,22 @@
 use crate::model::{CloneCandidate, ModuleDependency};
 
 #[derive(Debug)]
+pub(super) struct HclBlockMetrics {
+    pub block_type: String,
+    pub label: String,
+    pub line: usize,
+    pub lines: usize,
+    pub depth: usize,
+    pub attributes: usize,
+    pub nested_blocks: usize,
+    pub dynamic_blocks: usize,
+    pub max_expression_complexity: usize,
+    pub expression_line: usize,
+    pub max_collection_items: usize,
+    pub collection_line: usize,
+}
+
+#[derive(Debug)]
 pub(super) struct FunctionMetrics {
     pub name: String,
     pub line: usize,
@@ -86,6 +102,16 @@ pub(super) struct Facts {
     pub dependencies: Vec<ModuleDependency>,
     pub clone_candidates: Vec<CloneCandidate>,
     pub top_level_statements: usize,
+    pub hcl_blocks: Vec<HclBlockMetrics>,
+    pub untyped_variables: Vec<(String, usize)>,
+    pub undocumented_interfaces: Vec<(String, usize)>,
+    pub floating_sources: Vec<(String, usize)>,
+    pub broad_ignore_changes: Vec<usize>,
+    pub wide_explicit_dependencies: Vec<(usize, usize)>,
+    pub terragrunt_hooks: Vec<usize>,
+    pub terragrunt_dependencies: Vec<usize>,
+    pub terragrunt_config_reads: Vec<usize>,
+    pub terragrunt_includes: Vec<usize>,
 }
 
 #[derive(Debug, Default)]

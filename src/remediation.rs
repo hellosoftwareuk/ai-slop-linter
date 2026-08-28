@@ -47,6 +47,21 @@ const RULE_REMEDIATIONS: &[RuleRemediation] = &[
     RuleRemediation { rule: "error-laundering", guidance: "Propagate or translate the failure into a typed outcome instead of returning an ordinary default that is indistinguishable from successful empty data." },
     RuleRemediation { rule: "assertionless-test", guidance: "Assert an externally observable outcome or expected failure; remove the test if execution alone cannot distinguish correct from broken behavior." },
     RuleRemediation { rule: "boolean-call-soup", guidance: "Replace positional boolean literals with a named options object, enum, or mode so the call site states its behavior." },
+    RuleRemediation { rule: "oversized-hcl-block", guidance: "Split the configuration along independently owned resources or module boundaries, keeping provider-required nested blocks beside their owner." },
+    RuleRemediation { rule: "deep-hcl-nesting", guidance: "Flatten nested configuration where the provider schema permits it, and extract repeated or conditional structure into a focused module with an explicit interface." },
+    RuleRemediation { rule: "complex-hcl-expression", guidance: "Name intermediate decisions in small cohesive locals or module inputs so the final argument reads as a direct declaration rather than an embedded program." },
+    RuleRemediation { rule: "large-hcl-collection", guidance: "Move the collection behind a named local, typed input, data source, or separate data file only when that makes ownership and review boundaries clearer." },
+    RuleRemediation { rule: "dynamic-block-cluster", guidance: "Prefer a typed collection passed to a focused child module, or make a small number of concrete nested blocks explicit when their behavior differs." },
+    RuleRemediation { rule: "local-value-cluster", guidance: "Partition locals by cohesive domain purpose and remove pass-through aliases; promote real contracts to typed module inputs or outputs." },
+    RuleRemediation { rule: "untyped-variable-cluster", guidance: "Add precise Terraform type constraints, using object attributes and optional fields to make the accepted module contract inspectable." },
+    RuleRemediation { rule: "undocumented-interface-cluster", guidance: "Add concise descriptions that state intent, units, constraints, and sensitive behavior for public variables and outputs." },
+    RuleRemediation { rule: "floating-module-source", guidance: "Pin registry modules with a version constraint and Git or Terragrunt sources with an immutable tag or commit ref, then review the resulting plan." },
+    RuleRemediation { rule: "broad-ignore-changes", guidance: "List only externally managed attributes and document the ownership reason; remove the lifecycle suppression if Terraform should reconcile the value." },
+    RuleRemediation { rule: "explicit-dependency-cluster", guidance: "Prefer direct expression references so Terraform can infer precise edges; retain depends_on only for documented hidden behavioral dependencies." },
+    RuleRemediation { rule: "terragrunt-dependency-cluster", guidance: "Introduce a smaller orchestration boundary or stack and pass only the required outputs instead of coordinating many units from one configuration." },
+    RuleRemediation { rule: "terragrunt-hook-cluster", guidance: "Move substantial imperative behavior into a named, tested script or pipeline step and keep only the minimal lifecycle integration in Terragrunt." },
+    RuleRemediation { rule: "terragrunt-config-read-cluster", guidance: "Consolidate shared configuration behind one clearly owned include or input contract so readers do not reconstruct values from many files." },
+    RuleRemediation { rule: "terragrunt-include-cluster", guidance: "Reduce inheritance layers and expose one intentional shared configuration boundary, keeping unit-specific values local and explicit." },
 ];
 
 pub fn finding_prompt(rule: &str, path: &str, line: usize, evidence: &str) -> String {
@@ -66,6 +81,8 @@ pub fn parser_prompt(path: &str, language: Language, count: usize) -> String {
     let parser = match language {
         Language::TypeScript => "TypeScript/TSX parser",
         Language::Rust => "Rust parser",
+        Language::Terraform => "Terraform HCL parser",
+        Language::Terragrunt => "Terragrunt HCL parser",
     };
     format!(
         "Repair the {count} syntax error(s) reported by the {parser} in `{path}`. First reproduce them with the project's normal formatter or compiler, make the smallest syntax-preserving correction, then rerun Slop and the relevant tests. Do not silence or exclude the file."

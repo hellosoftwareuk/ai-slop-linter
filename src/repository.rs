@@ -106,9 +106,16 @@ fn resolve_dependencies(
                     .collect()
             }
             Language::Rust => resolve_rust(&file.display_path, &dependency.specifier, index),
+            Language::Terraform | Language::Terragrunt => {
+                resolve_hcl(&file.display_path, &dependency.specifier, index)
+            }
         };
         if targets.is_empty() {
-            if file.language == Language::TypeScript && dependency.specifier.starts_with('.') {
+            if matches!(
+                file.language,
+                Language::TypeScript | Language::Terraform | Language::Terragrunt
+            ) && dependency.specifier.starts_with('.')
+            {
                 *unresolved_relative_dependencies += 1;
             }
             continue;
@@ -168,6 +175,39 @@ fn strip_javascript_extension(path: &str) -> Option<&str> {
     [".js", ".jsx", ".mjs", ".cjs"]
         .into_iter()
         .find_map(|extension| path.strip_suffix(extension))
+}
+
+fn resolve_hcl(source: &str, specifier: &str, index: &HashMap<String, usize>) -> Vec<usize> {
+    let specifier = specifier
+        .strip_prefix("file://")
+        .unwrap_or(specifier)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(specifier);
+    let base = join_path(parent_path(source), specifier);
+    let preferred = [
+        base.clone(),
+        format!("{base}/terragrunt.hcl"),
+        format!("{base}/main.tf"),
+        format!("{base}/root.hcl"),
+    ];
+    if let Some(target) = preferred
+        .iter()
+        .find_map(|candidate| index.get(candidate).copied())
+    {
+        return vec![target];
+    }
+    let mut module_files = index
+        .iter()
+        .filter(|(path, _)| {
+            parent_path(path) == base && (path.ends_with(".tf") || path.ends_with(".hcl"))
+        })
+        .map(|(path, target)| (path, *target))
+        .collect::<Vec<_>>();
+    module_files.sort_unstable_by(|left, right| left.0.cmp(right.0));
+    module_files
+        .first()
+        .map_or_else(Vec::new, |(_, target)| vec![*target])
 }
 
 fn resolve_rust(source: &str, specifier: &str, index: &HashMap<String, usize>) -> Vec<usize> {
@@ -456,5 +496,21 @@ mod tests {
         let components = strongly_connected_components(&[vec![1], vec![0, 2], vec![]]);
         assert!(components.iter().any(|component| component.len() == 2));
         assert!(components.iter().any(|component| component == &[2]));
+    }
+
+    #[test]
+    fn hcl_resolution_understands_module_and_terragrunt_directories() {
+        let index = HashMap::from([
+            ("modules/network/main.tf".to_owned(), 0),
+            ("live/shared/terragrunt.hcl".to_owned(), 1),
+        ]);
+        assert_eq!(
+            resolve_hcl("infra/main.tf", "../modules/network", &index),
+            vec![0]
+        );
+        assert_eq!(
+            resolve_hcl("live/app/terragrunt.hcl", "../shared", &index),
+            vec![1]
+        );
     }
 }

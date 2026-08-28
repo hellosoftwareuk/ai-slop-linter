@@ -12,7 +12,7 @@ pub enum OutputFormat {
 #[command(
     name = "slop",
     version,
-    about = "Measure TypeScript and Rust maintainability debt at native speed"
+    about = "Measure TypeScript, Rust, Terraform, and Terragrunt maintainability debt at native speed"
 )]
 pub struct Cli {
     /// Folder, repository, or repository subfolder to scan.

@@ -98,7 +98,7 @@ fn print_summary(output: &mut impl Write, report: &ScanReport) {
     let macro_trees = report.metrics.macro_invocations + report.metrics.macro_definitions;
     let _ = writeln!(
         output,
-        "Repository graph: {} internal edges across {} directories  |  {} unresolved relative imports",
+        "Repository graph: {} internal edges across {} directories  |  {} unresolved relative dependencies",
         format_count(report.repository_metrics.internal_dependencies),
         format_count(report.repository_metrics.directories),
         report.repository_metrics.unresolved_relative_dependencies,
@@ -144,10 +144,22 @@ fn language_summary(report: &ScanReport) -> String {
         .get(&Language::Rust)
         .copied()
         .unwrap_or_default();
+    let terraform = report
+        .languages
+        .get(&Language::Terraform)
+        .copied()
+        .unwrap_or_default();
+    let terragrunt = report
+        .languages
+        .get(&Language::Terragrunt)
+        .copied()
+        .unwrap_or_default();
     format!(
-        "{} TypeScript, {} Rust",
+        "{} TypeScript, {} Rust, {} Terraform, {} Terragrunt",
         format_count(typescript),
-        format_count(rust)
+        format_count(rust),
+        format_count(terraform),
+        format_count(terragrunt),
     )
 }
 

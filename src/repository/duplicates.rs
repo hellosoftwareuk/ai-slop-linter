@@ -54,9 +54,9 @@ fn clone_finding(mut group: Vec<(&FileAnalysis, &CloneCandidate)>) -> Finding {
         (5.0 + (group.len() - 2) as f64 + first.tokens as f64 / 100.0).min(12.0),
         (first_file.display_path.clone(), first.line),
         (
-            "Large functions repeat the same structure with renamed values",
+            "Large code regions repeat the same structure with renamed values",
             format!(
-                "{} equivalent functions across {} files; {} normalized tokens over lines {}-{}; other locations: {locations}",
+                "{} equivalent regions across {} files; {} normalized tokens over lines {}-{}; other locations: {locations}",
                 group.len(),
                 distinct_file_count(&group),
                 first.tokens,

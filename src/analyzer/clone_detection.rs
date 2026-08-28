@@ -59,15 +59,12 @@ impl Normalizer {
     }
 
     fn consume(&mut self, output: &mut String, tokens: &mut usize) {
+        if self.consume_comment() {
+            return;
+        }
         let current = self.characters[self.index];
         match current {
             character if character.is_whitespace() => self.index += 1,
-            '/' if self.next_is('/') => {
-                self.index = skip_line_comment(&self.characters, self.index + 2);
-            }
-            '/' if self.next_is('*') => {
-                self.index = skip_block_comment(&self.characters, self.index + 2);
-            }
             character if self.at_quoted_literal(character) => {
                 self.index = skip_quoted(&self.characters, self.index + 1, character);
                 push_token(output, "L", tokens);
@@ -83,6 +80,20 @@ impl Normalizer {
                 self.index += 1;
             }
         }
+    }
+
+    fn consume_comment(&mut self) -> bool {
+        let start = self.index;
+        let next = match self.characters[start] {
+            '/' if self.next_is('/') => skip_line_comment(&self.characters, start + 2),
+            '/' if self.next_is('*') => skip_block_comment(&self.characters, start + 2),
+            '#' if matches!(self.language, Language::Terraform | Language::Terragrunt) => {
+                skip_line_comment(&self.characters, start + 1)
+            }
+            _ => return false,
+        };
+        self.index = next;
+        true
     }
 
     fn consume_word(&mut self, output: &mut String, tokens: &mut usize) {
@@ -192,6 +203,7 @@ fn is_keyword(word: &str, language: Language) -> bool {
     match language {
         Language::TypeScript => TS_KEYWORDS.contains(&word),
         Language::Rust => RUST_KEYWORDS.contains(&word),
+        Language::Terraform | Language::Terragrunt => HCL_KEYWORDS.contains(&word),
     }
 }
 
@@ -199,6 +211,7 @@ fn is_word_literal(word: &str, language: Language) -> bool {
     match language {
         Language::TypeScript => matches!(word, "false" | "null" | "true" | "undefined"),
         Language::Rust => matches!(word, "false" | "true"),
+        Language::Terraform | Language::Terragrunt => matches!(word, "false" | "null" | "true"),
     }
 }
 
@@ -254,6 +267,26 @@ const RUST_KEYWORDS: &[&str] = &[
     "use", "where", "while",
 ];
 
+const HCL_KEYWORDS: &[&str] = &[
+    "data",
+    "dynamic",
+    "else",
+    "false",
+    "for",
+    "if",
+    "in",
+    "lifecycle",
+    "locals",
+    "module",
+    "null",
+    "output",
+    "provider",
+    "resource",
+    "terraform",
+    "true",
+    "variable",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +309,18 @@ mod tests {
         let (greater, _) = normalize("fn check(value: i32) { value > 10 }", Language::Rust);
         let (less, _) = normalize("fn check(value: i32) { value < 10 }", Language::Rust);
         assert_ne!(greater, less);
+    }
+
+    #[test]
+    fn hcl_normalization_ignores_labels_and_comments() {
+        let (first, _) = normalize(
+            "resource \"aws_instance\" \"web\" { # public host\n enabled = true }",
+            Language::Terraform,
+        );
+        let (second, _) = normalize(
+            "resource \"google_compute_instance\" \"api\" { # internal host\n enabled = false }",
+            Language::Terraform,
+        );
+        assert_eq!(first, second);
     }
 }

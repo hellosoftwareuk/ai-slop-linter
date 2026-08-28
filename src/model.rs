@@ -8,19 +8,26 @@ pub enum Language {
     #[serde(rename = "typescript")]
     TypeScript,
     Rust,
+    Terraform,
+    Terragrunt,
 }
 
 impl Language {
     pub fn from_path(path: &std::path::Path) -> Option<Self> {
-        let extension = path.extension()?.to_str()?;
-        if extension.eq_ignore_ascii_case("ts") || extension.eq_ignore_ascii_case("tsx") {
-            Some(Self::TypeScript)
-        } else if extension.eq_ignore_ascii_case("rs") {
-            Some(Self::Rust)
-        } else {
-            None
+        let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+        match extension.as_str() {
+            "ts" | "tsx" => Some(Self::TypeScript),
+            "rs" => Some(Self::Rust),
+            "tf" | "tfvars" => Some(Self::Terraform),
+            "hcl" if !is_terraform_lock(path) => Some(Self::Terragrunt),
+            _ => None,
         }
     }
+}
+
+fn is_terraform_lock(path: &std::path::Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case(".terraform.lock.hcl"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -155,6 +162,11 @@ pub struct AstMetrics {
     pub type_assertions: usize,
     pub vague_bindings: usize,
     pub thin_wrappers: usize,
+    pub hcl_blocks: usize,
+    pub hcl_attributes: usize,
+    pub terraform_resources: usize,
+    pub terraform_variables: usize,
+    pub terragrunt_dependencies: usize,
 }
 
 impl AstMetrics {
@@ -176,6 +188,11 @@ impl AstMetrics {
             type_assertions: self.type_assertions + other.type_assertions,
             vague_bindings: self.vague_bindings + other.vague_bindings,
             thin_wrappers: self.thin_wrappers + other.thin_wrappers,
+            hcl_blocks: self.hcl_blocks + other.hcl_blocks,
+            hcl_attributes: self.hcl_attributes + other.hcl_attributes,
+            terraform_resources: self.terraform_resources + other.terraform_resources,
+            terraform_variables: self.terraform_variables + other.terraform_variables,
+            terragrunt_dependencies: self.terragrunt_dependencies + other.terragrunt_dependencies,
         };
     }
 }

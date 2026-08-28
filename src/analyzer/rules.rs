@@ -35,6 +35,7 @@ pub(super) fn evaluate(path: &str, file_lines: usize, facts: &Facts) -> (AstMetr
     assess_names(path, facts, &mut findings);
     assess_wrappers(path, &thin_wrappers, &mut findings);
     super::behavior_rules::assess_file(path, facts, &mut findings);
+    super::hcl_rules::assess(path, facts, &mut findings);
 
     (metrics, findings)
 }
@@ -57,6 +58,19 @@ fn build_metrics(facts: &Facts, thin_wrappers: usize) -> AstMetrics {
         type_assertions: facts.assertion_locations.len(),
         vague_bindings: facts.vague_bindings.len(),
         thin_wrappers,
+        hcl_blocks: facts.hcl_blocks.len(),
+        hcl_attributes: facts.hcl_blocks.iter().map(|block| block.attributes).sum(),
+        terraform_resources: facts
+            .hcl_blocks
+            .iter()
+            .filter(|block| block.block_type == "resource")
+            .count(),
+        terraform_variables: facts
+            .hcl_blocks
+            .iter()
+            .filter(|block| block.block_type == "variable")
+            .count(),
+        terragrunt_dependencies: facts.terragrunt_dependencies.len(),
     }
 }
 

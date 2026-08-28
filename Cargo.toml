@@ -1,9 +1,9 @@
 [package]
 name = "slop"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.96"
-description = "A fast AST-based TypeScript and Rust maintainability scanner"
+description = "A fast AST-based TypeScript, Rust, Terraform, and Terragrunt maintainability scanner"
 
 [dependencies]
 anyhow = "1.0"
@@ -17,6 +17,8 @@ oxc_span = "=0.147.0"
 ra_ap_syntax = "=0.0.349"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tree-sitter = "=0.26.11"
+tree-sitter-hcl = "=1.1.0"
 
 [profile.release]
 codegen-units = 1

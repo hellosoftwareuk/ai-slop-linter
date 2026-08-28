@@ -18,6 +18,8 @@ const ALWAYS_IGNORED: &[&str] = &[
     "dist",
     "build",
     ".next",
+    ".terraform",
+    ".terragrunt-cache",
     "coverage",
     "fixtures",
     "__fixtures__",
@@ -144,6 +146,7 @@ fn is_source(path: &Path, include_declarations: bool) -> bool {
                     .is_some_and(|name| name.to_string_lossy().ends_with(".d.ts"))
         }
         Some(Language::Rust) => true,
+        Some(Language::Terraform | Language::Terragrunt) => true,
         None => false,
     }
 }

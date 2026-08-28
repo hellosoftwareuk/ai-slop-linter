@@ -1,6 +1,8 @@
 mod behavior_rules;
 mod clone_detection;
 mod core;
+mod hcl;
+mod hcl_rules;
 mod rules;
 mod rust;
 mod rust_signals;
@@ -26,6 +28,7 @@ pub fn analyze_file(path: &Path, root: &Path, source: String, bytes: u64) -> Res
     let parsed = match language {
         Language::TypeScript => typescript::collect(path, &source)?,
         Language::Rust => rust::collect(&source),
+        Language::Terraform | Language::Terragrunt => hcl::collect(&source, language)?,
     };
     let (metrics, mut findings) = rules::evaluate(&display_path, lines, &parsed.facts);
     findings.sort_unstable_by(|left, right| {

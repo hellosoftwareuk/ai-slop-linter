@@ -1,7 +1,8 @@
 # slop
 
-`slop` is a fast, native CLI that scans TypeScript, TSX, and Rust syntax trees
-for maintainability hotspots. Point it at a repository or any subfolder:
+`slop` is a fast, native CLI that scans TypeScript, TSX, Rust, Terraform, and
+Terragrunt syntax trees for maintainability hotspots. Point it at a repository
+or any subfolder:
 
 ```sh
 slop .
@@ -33,6 +34,21 @@ finding per function and rule.
 Rust makes mutation explicit in the type system, it only reports functions that
 mutate at least two `&mut` inputs across three or more sites.
 
+Terraform (`.tf`, `.tfvars`) and Terragrunt (`.hcl`) add 15 HCL-specific checks:
+
+- `oversized-hcl-block`, `deep-hcl-nesting`, and `complex-hcl-expression`
+- `large-hcl-collection`, `dynamic-block-cluster`, and `local-value-cluster`
+- `untyped-variable-cluster` and `undocumented-interface-cluster`
+- `floating-module-source`, `broad-ignore-changes`, and
+  `explicit-dependency-cluster`
+- `terragrunt-dependency-cluster`, `terragrunt-hook-cluster`,
+  `terragrunt-config-read-cluster`, and `terragrunt-include-cluster`
+
+Local Terraform module sources and static Terragrunt `dependency`,
+`dependencies`, `include`, and `read_terragrunt_config` paths feed the same
+repository and folder graphs as TypeScript imports and Rust modules. Large HCL
+blocks also participate in normalized cross-file clone detection.
+
 After the parallel file scan, a zero-configuration repository graph adds these
 architecture checks:
 
@@ -54,11 +70,12 @@ coupling thresholds to the codebase. Existing `package.json` metadata is read
 when it can prove a workspace boundary.
 
 The walker respects `.gitignore` and processes files in parallel. `node_modules`,
-build output, coverage output, fixture directories, and TypeScript declaration
-files are skipped by default. Pointing directly at a skipped directory still
-scans it. Parsing is performed directly with Oxc for TypeScript and
-rust-analyzer's lossless syntax parser for Rust; the scan does not start Node,
-`tsc`, `rustc`, or Cargo.
+build output, coverage output, fixture directories, `.terraform`,
+`.terragrunt-cache`, Terraform lock files, and TypeScript declaration files are
+skipped by default. Pointing directly at a skipped directory still scans it.
+Parsing is performed directly with Oxc for TypeScript, rust-analyzer's lossless
+syntax parser for Rust, and Tree-sitter HCL for Terraform and Terragrunt; the
+scan does not start Node, `tsc`, `rustc`, Cargo, Terraform, or Terragrunt.
 
 ## Architecture
 
@@ -71,12 +88,14 @@ folder graphs:
 ```text
 Oxc TypeScript AST ─┐
                     ├─> facts/events ─> shared rules ─> shared score
-rust-analyzer CST ──┘
+rust-analyzer CST ──┤
+Tree-sitter HCL CST ┘
 
 resolved imports/use edges ─> module graph ─> architecture findings
                                       └─────> folder graph ─> structure findings
 
-large named function spans ─> normalized tokens ─> cross-file clone groups
+large named function spans ─┐
+large top-level HCL blocks ─┴─> normalized tokens ─> cross-file clone groups
 ```
 
 That boundary shares the product logic without hiding language semantics. The
@@ -84,6 +103,11 @@ Rust parser always returns a tree, so valid regions of an incomplete file still
 produce findings while syntax errors are counted separately. If a file uses a
 pre-2024 keyword as an identifier, the parser automatically selects the edition
 that preserves the most syntax.
+
+The HCL adapter treats blocks, expressions, module interfaces, lifecycle rules,
+and Terragrunt orchestration as configuration concepts rather than pretending
+they are functions. Tree-sitter also preserves partial-file analysis when HCL
+is temporarily invalid.
 
 Rust macro calls, `macro_rules!` transcribers, and macro 2.0 bodies are inspected
 recursively when their token trees contain Rust items, statements, expressions,
@@ -97,9 +121,9 @@ copyable `LLM prompt` in text output. Parser diagnostics and fatal CLI errors
 also include prompts that preserve the failing path and recommend fixing the
 underlying source or invocation rather than excluding it.
 
-In five-run checks on the development machine, a mixed tree of 1,519 files and
-506,982 non-empty lines scanned in a median of 220 ms with zero file parse
-errors: about 2.3 million non-empty lines per second. Use the `elapsed_ms` JSON
+In five-run checks on the development machine, a mixed tree of 1,541 files and
+509,354 non-empty lines scanned in a median of 273 ms with zero file parse
+errors: about 1.9 million non-empty lines per second. Use the `elapsed_ms` JSON
 field to benchmark your own machines and repositories.
 
 ## Build

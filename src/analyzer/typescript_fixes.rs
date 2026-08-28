@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Comment, ComputedMemberExpression, ConditionalExpression, FunctionBody, IfStatement,
-        ObjectProperty, Program, PropertyKey, PropertyKind, Statement, TSIntersectionType, TSType,
-        TSUnionType, VariableDeclaration, VariableDeclarationKind,
+        ComputedMemberExpression, ConditionalExpression, FunctionBody, IfStatement, ObjectProperty,
+        Program, PropertyKey, PropertyKind, Statement, TSIntersectionType, TSType, TSUnionType,
+        VariableDeclaration, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -14,32 +14,24 @@ use oxc_span::{GetSpan, Span};
 
 use crate::model::ProposedFix;
 
-use super::core::LineIndex;
+use super::typescript_fix_context::FixContext;
 
 pub(super) fn collect(program: &Program<'_>, source: &str, scoping: &Scoping) -> Vec<ProposedFix> {
     let mut visitor = FixVisitor {
-        source,
-        lines: LineIndex::new(source),
-        comments: &program.comments,
+        context: FixContext::new(source, &program.comments),
         scoping,
-        fixes: Vec::new(),
         has_direct_eval: false,
     };
     visitor.visit_program(program);
     if visitor.has_direct_eval {
-        visitor
-            .fixes
-            .retain(|candidate| candidate.rule != "prefer-const");
+        visitor.context.remove_rule("prefer-const");
     }
-    visitor.fixes
+    visitor.context.into_fixes()
 }
 
 struct FixVisitor<'source, 'ast, 'semantic> {
-    source: &'source str,
-    lines: LineIndex,
-    comments: &'ast [Comment],
+    context: FixContext<'source, 'ast>,
     scoping: &'semantic Scoping,
-    fixes: Vec<ProposedFix>,
     has_direct_eval: bool,
 }
 
@@ -65,8 +57,9 @@ impl FixVisitor<'_, '_, '_> {
         }
 
         let keyword = Span::new(declaration.span.start, declaration.span.start + 3);
-        if self.slice(keyword) == Some("let") {
-            self.propose("prefer-const", keyword, "const".to_owned());
+        if self.context.slice(keyword) == Some("let") {
+            self.context
+                .propose("prefer-const", keyword, "const".to_owned());
         }
     }
 
@@ -88,7 +81,7 @@ impl FixVisitor<'_, '_, '_> {
         if key.name == "__proto__" || key.name != value.name {
             return;
         }
-        self.propose(
+        self.context.propose(
             "object-property-shorthand",
             property.span,
             key.name.to_string(),
@@ -107,21 +100,21 @@ impl FixVisitor<'_, '_, '_> {
             return;
         }
         let Some(prefix) = self
-            .source
-            .get(property.span.start as usize..key.span.start as usize)
+            .context
+            .slice(Span::new(property.span.start, key.span.start))
         else {
             return;
         };
         let Some(suffix) = self
-            .source
-            .get(key.span.end as usize..property.value.span().start as usize)
+            .context
+            .slice(Span::new(key.span.end, property.value.span().start))
         else {
             return;
         };
         let (Some(open), Some(close)) = (prefix.rfind('['), suffix.find(']')) else {
             return;
         };
-        self.propose(
+        self.context.propose(
             "prefer-static-object-key",
             Span::new(
                 property.span.start + open as u32,
@@ -146,7 +139,7 @@ impl FixVisitor<'_, '_, '_> {
             return;
         }
         let span = Span::new(member.object.span().end, member.span.end);
-        self.propose(
+        self.context.propose(
             "prefer-dot-property",
             span,
             if member.optional {
@@ -167,7 +160,7 @@ impl FixVisitor<'_, '_, '_> {
         if consequent.value == alternate.value {
             return;
         }
-        let Some(test) = self.slice(expression.test.span()) else {
+        let Some(test) = self.context.slice(expression.test.span()) else {
             return;
         };
         let replacement = if consequent.value {
@@ -175,7 +168,7 @@ impl FixVisitor<'_, '_, '_> {
         } else {
             format!("(!({test}))")
         };
-        self.propose(
+        self.context.propose(
             "redundant-boolean-conditional",
             expression.span,
             replacement,
@@ -200,17 +193,17 @@ impl FixVisitor<'_, '_, '_> {
         span: Span,
         types: &[TSType<'_>],
     ) {
-        if types.len() < 2 || self.has_comment(span) {
+        if types.len() < 2 || self.context.has_comment(span) {
             return;
         }
-        let Some(original) = self.slice(span) else {
+        let Some(original) = self.context.slice(span) else {
             return;
         };
         let mut seen = HashSet::with_capacity(types.len());
         let mut removals = Vec::new();
         for (index, member) in types.iter().enumerate() {
             let member_span = member.span();
-            let Some(text) = self.slice(member_span) else {
+            let Some(text) = self.context.slice(member_span) else {
                 return;
             };
             if !seen.insert(text) && index > 0 {
@@ -229,7 +222,7 @@ impl FixVisitor<'_, '_, '_> {
         for (start, end) in removals.into_iter().rev() {
             replacement.replace_range(start..end, "");
         }
-        self.propose(rule, span, replacement);
+        self.context.propose(rule, span, replacement);
     }
 
     fn record_collapsible_if(&mut self, outer: &IfStatement<'_>) {
@@ -249,13 +242,13 @@ impl FixVisitor<'_, '_, '_> {
             return;
         }
         let (Some(outer_test), Some(inner_test), Some(body)) = (
-            self.slice(outer.test.span()),
-            self.slice(inner.test.span()),
-            self.slice(inner.consequent.span()),
+            self.context.slice(outer.test.span()),
+            self.context.slice(inner.test.span()),
+            self.context.slice(inner.consequent.span()),
         ) else {
             return;
         };
-        self.propose(
+        self.context.propose(
             "collapsible-if",
             outer.span,
             format!("if (({outer_test}) && ({inner_test})) {body}"),
@@ -263,7 +256,6 @@ impl FixVisitor<'_, '_, '_> {
     }
 
     fn record_if_cleanup(&mut self, statement: &IfStatement<'_>) {
-        self.record_empty_else(statement);
         self.record_boolean_return(statement);
         self.record_collapsible_if(statement);
     }
@@ -275,7 +267,7 @@ impl FixVisitor<'_, '_, '_> {
         if !alternate.body.is_empty() {
             return;
         }
-        self.propose(
+        self.context.propose(
             "empty-else",
             Span::new(statement.consequent.span().end, statement.span.end),
             String::new(),
@@ -295,10 +287,10 @@ impl FixVisitor<'_, '_, '_> {
         if consequent == alternate {
             return;
         }
-        let Some(test) = self.slice(statement.test.span()) else {
+        let Some(test) = self.context.slice(statement.test.span()) else {
             return;
         };
-        self.propose(
+        self.context.propose(
             "redundant-boolean-return",
             statement.span,
             if consequent {
@@ -322,10 +314,14 @@ impl FixVisitor<'_, '_, '_> {
             .rev()
             .nth(1)
             .map_or(body.span.start, |previous| previous.span().end);
-        if self.has_comment(Span::new(guard_start, body.span.end)) {
+        if self
+            .context
+            .has_comment(Span::new(guard_start, body.span.end))
+        {
             return;
         }
-        self.propose("redundant-terminal-return", statement.span, String::new());
+        self.context
+            .propose("redundant-terminal-return", statement.span, String::new());
     }
 
     fn record_terminal_continue(&mut self, body: &Statement<'_>) {
@@ -344,10 +340,14 @@ impl FixVisitor<'_, '_, '_> {
             .rev()
             .nth(1)
             .map_or(block.span.start, |previous| previous.span().end);
-        if self.has_comment(Span::new(guard_start, block.span.end)) {
+        if self
+            .context
+            .has_comment(Span::new(guard_start, block.span.end))
+        {
             return;
         }
-        self.propose("redundant-terminal-continue", statement.span, String::new());
+        self.context
+            .propose("redundant-terminal-continue", statement.span, String::new());
     }
 
     fn record_empty_statements(&mut self, statements: &[Statement<'_>], container: Span) {
@@ -361,8 +361,18 @@ impl FixVisitor<'_, '_, '_> {
             let guard_end = statements
                 .get(index + 1)
                 .map_or(container.end, |next| next.span().start);
-            if !self.has_comment(Span::new(guard_start, guard_end)) {
-                self.propose("unnecessary-empty-statement", empty.span, String::new());
+            if !self.context.has_comment(Span::new(guard_start, guard_end)) {
+                self.context
+                    .propose("unnecessary-empty-statement", empty.span, String::new());
+            }
+        }
+    }
+
+    fn record_statement_list(&mut self, statements: &[Statement<'_>], container: Span) {
+        self.record_empty_statements(statements, container);
+        for statement in statements {
+            if let Statement::IfStatement(statement) = statement {
+                self.record_empty_else(statement);
             }
         }
     }
@@ -372,36 +382,6 @@ impl FixVisitor<'_, '_, '_> {
             call.callee.get_inner_expression(),
             oxc_ast::ast::Expression::Identifier(identifier) if identifier.name == "eval"
         );
-    }
-
-    fn propose(&mut self, rule: &'static str, span: Span, replacement: String) {
-        if span.is_empty()
-            || self.has_comment(span)
-            || replacement == self.slice(span).unwrap_or("")
-        {
-            return;
-        }
-        let Some(expected) = self.slice(span).map(str::to_owned) else {
-            return;
-        };
-        self.fixes.push(ProposedFix {
-            rule,
-            start: span.start as usize,
-            end: span.end as usize,
-            expected,
-            replacement,
-            line: self.lines.line(span.start),
-        });
-    }
-
-    fn slice(&self, span: Span) -> Option<&str> {
-        self.source.get(span.start as usize..span.end as usize)
-    }
-
-    fn has_comment(&self, span: Span) -> bool {
-        self.comments
-            .iter()
-            .any(|comment| comment.span.start < span.end && comment.span.end > span.start)
     }
 }
 
@@ -454,12 +434,12 @@ impl FixVisitor<'_, '_, '_> {
 
     fn record_container_fix(&mut self, kind: AstKind<'_>) {
         match kind {
-            AstKind::Program(program) => self.record_empty_statements(&program.body, program.span),
+            AstKind::Program(program) => self.record_statement_list(&program.body, program.span),
             AstKind::BlockStatement(block) => {
-                self.record_empty_statements(&block.body, block.span);
+                self.record_statement_list(&block.body, block.span);
             }
             AstKind::FunctionBody(body) => {
-                self.record_empty_statements(&body.statements, body.span);
+                self.record_statement_list(&body.statements, body.span);
                 self.record_terminal_return(body);
             }
             _ => {}

@@ -14,6 +14,16 @@ const SECOND_BATCH_RULES: [&str; 7] = [
     "unnecessary-empty-statement",
 ];
 
+const THIRD_BATCH_RULES: [&str; 7] = [
+    "redundant-type-identity",
+    "duplicate-type-assertion",
+    "duplicate-non-null-assertion",
+    "jsx-boolean-shorthand",
+    "collapsible-else-if",
+    "invert-empty-if",
+    "empty-finally",
+];
+
 #[test]
 fn typescript_safe_fix_findings_are_ast_backed_and_explicitly_fixable() {
     let source = r#"
@@ -219,6 +229,197 @@ function documentedNoOp(): void {
             .iter()
             .all(|candidate| !SECOND_BATCH_RULES.contains(&candidate.rule)),
         "unexpected candidates: {:?}",
+        analysis.proposed_fixes
+    );
+}
+
+#[test]
+fn third_safe_fix_batch_is_detected_and_applied_to_a_fixed_point() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("third-batch.tsx");
+    let source = r#"
+interface Named { id: string }
+declare const value: Named;
+declare const first: boolean;
+declare const second: boolean;
+type Plain = Named | never;
+type Combined = Named & unknown;
+const asserted = value as Named as Named;
+const present = value!!;
+const view = <Widget enabled={true} />;
+
+if (first) {
+  work();
+} else {
+  if (second) {
+    workAgain();
+  }
+}
+
+if (first) {
+} else {
+  use(value, view);
+}
+
+try {
+  work();
+} catch (error) {
+  handle(error);
+} finally {}
+"#;
+    fs::write(&path, source)?;
+    let analysis = analyze_file(
+        &path,
+        directory.path(),
+        source.to_owned(),
+        source.len() as u64,
+    )?;
+    let rules = analysis
+        .proposed_fixes
+        .iter()
+        .map(|candidate| candidate.rule)
+        .collect::<Vec<_>>();
+    for expected in THIRD_BATCH_RULES {
+        assert!(rules.contains(&expected), "missing {expected}: {rules:?}");
+        assert!(analysis
+            .findings
+            .iter()
+            .any(|finding| finding.rule == expected && finding.fixable));
+    }
+
+    let summary = fixer::apply(directory.path(), &[analysis])?;
+    assert_eq!(summary.files_changed, 1);
+    assert_eq!(summary.applied, 8, "summary: {summary:?}");
+    let fixed = fs::read_to_string(&path)?;
+    assert!(fixed.contains("type Plain = Named;"));
+    assert!(fixed.contains("type Combined = Named;"));
+    assert!(fixed.contains("const asserted = value as Named;"));
+    assert!(fixed.contains("const present = value!;"));
+    assert!(fixed.contains("<Widget enabled />"));
+    assert!(fixed.contains("else if (second)"));
+    assert!(fixed.contains("if (!(first)) {"));
+    assert!(!fixed.contains("finally"));
+
+    let rescanned = analyze_file(&path, directory.path(), fixed.clone(), fixed.len() as u64)?;
+    assert_eq!(rescanned.parse_errors, 0);
+    assert!(rescanned.proposed_fixes.is_empty());
+    let second = fixer::apply(directory.path(), &[rescanned])?;
+    assert_eq!(second.applied, 0);
+    assert_eq!(fs::read_to_string(path)?, fixed);
+    Ok(())
+}
+
+#[test]
+fn third_batch_preserves_non_identity_or_documented_shapes() {
+    let source = r#"
+interface Named { id: string }
+interface Other { name: string }
+declare const value: Named;
+declare const first: boolean;
+declare const second: boolean;
+type Bottom = never | never;
+type Top = unknown & unknown;
+type Documented = Named | /* deliberately explicit */ never;
+const different = value as Named as Other;
+const present = value!;
+const disabled = <Widget enabled={false} />;
+const documented = <Widget enabled={/* deliberate */ true} />;
+
+if (first) {
+  work();
+} else {
+  /* preserve explanation */
+  if (second) workAgain();
+}
+
+if (first) {
+} else {
+  /* preserve explanation */
+  work();
+}
+
+try {
+  work();
+} finally {}
+
+try {
+  work();
+} catch (error) {
+  handle(error);
+} finally {
+  /* deliberate cleanup boundary */
+}
+"#;
+    let analysis = analyze_inline("third-near-misses.tsx", source);
+    assert_eq!(analysis.parse_errors, 0);
+    assert!(
+        analysis
+            .proposed_fixes
+            .iter()
+            .all(|candidate| !THIRD_BATCH_RULES.contains(&candidate.rule)),
+        "unexpected candidates: {:?}",
+        analysis.proposed_fixes
+    );
+}
+
+#[test]
+fn third_batch_converges_across_overlapping_and_legacy_assertion_shapes() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("fixed-point.ts");
+    let source = r#"
+interface Named { id: string }
+declare const value: Named;
+type Many = never | Named | never;
+const asserted = <Named><Named>value;
+"#;
+    fs::write(&path, source)?;
+    let analysis = analyze_file(
+        &path,
+        directory.path(),
+        source.to_owned(),
+        source.len() as u64,
+    )?;
+    assert_eq!(analysis.parse_errors, 0);
+    assert!(analysis
+        .proposed_fixes
+        .iter()
+        .any(|candidate| candidate.rule == "redundant-type-identity"));
+    assert!(analysis
+        .proposed_fixes
+        .iter()
+        .any(|candidate| candidate.rule == "duplicate-type-assertion"));
+
+    let summary = fixer::apply(directory.path(), &[analysis])?;
+    assert_eq!(summary.files_changed, 1);
+    assert_eq!(summary.applied, 3, "summary: {summary:?}");
+    let fixed = fs::read_to_string(&path)?;
+    assert!(fixed.contains("type Many = Named;"));
+    assert!(fixed.contains("const asserted = <Named>value;"));
+    let fixed_bytes = fixed.len() as u64;
+    let rescanned = analyze_file(&path, directory.path(), fixed, fixed_bytes)?;
+    assert_eq!(rescanned.parse_errors, 0);
+    assert!(rescanned.proposed_fixes.is_empty());
+    Ok(())
+}
+
+#[test]
+fn empty_else_and_empty_first_branch_skip_dangling_else_positions() {
+    let source = r#"
+declare const outer: boolean;
+declare const inner: boolean;
+if (outer)
+  if (inner) work();
+  else {}
+else fallback();
+"#;
+    let analysis = analyze_inline("dangling-else.ts", source);
+    assert_eq!(analysis.parse_errors, 0);
+    assert!(
+        analysis
+            .proposed_fixes
+            .iter()
+            .all(|candidate| !matches!(candidate.rule, "empty-else" | "invert-empty-if")),
+        "unsafe candidate: {:?}",
         analysis.proposed_fixes
     );
 }

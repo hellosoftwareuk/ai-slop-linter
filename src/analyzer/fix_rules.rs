@@ -82,6 +82,48 @@ const SAFE_FIX_RULES: &[SafeFixRule] = &[
         message: "Empty statements add punctuation without behavior",
         noun: "empty statement",
     },
+    SafeFixRule {
+        rule: "redundant-type-identity",
+        category: Category::TypeSafety,
+        message: "Type expressions include identity members",
+        noun: "type member",
+    },
+    SafeFixRule {
+        rule: "duplicate-type-assertion",
+        category: Category::TypeSafety,
+        message: "Nested type assertions repeat the same type",
+        noun: "type assertion",
+    },
+    SafeFixRule {
+        rule: "duplicate-non-null-assertion",
+        category: Category::TypeSafety,
+        message: "Non-null assertions are repeated",
+        noun: "non-null assertion",
+    },
+    SafeFixRule {
+        rule: "jsx-boolean-shorthand",
+        category: Category::Readability,
+        message: "JSX boolean props explicitly restate true",
+        noun: "JSX prop",
+    },
+    SafeFixRule {
+        rule: "collapsible-else-if",
+        category: Category::Complexity,
+        message: "Else blocks wrap a single if statement",
+        noun: "else block",
+    },
+    SafeFixRule {
+        rule: "invert-empty-if",
+        category: Category::Readability,
+        message: "Empty first branches hide the branch that does work",
+        noun: "if statement",
+    },
+    SafeFixRule {
+        rule: "empty-finally",
+        category: Category::Readability,
+        message: "Empty finally blocks add no cleanup behavior",
+        noun: "finally block",
+    },
 ];
 
 pub(super) fn assess(path: &str, facts: &Facts, findings: &mut Vec<Finding>) {

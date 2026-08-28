@@ -17,7 +17,7 @@ slop src --fix
 
 Scans are read-only unless `--fix` is present. The fixer currently supports
 TypeScript and deliberately has no unsafe mode or configuration surface. It
-applies twelve low-risk rewrites:
+applies nineteen low-risk rewrites:
 
 - `prefer-const` only when Oxc's semantic binding graph proves one initialized
   `let` binding has no writes
@@ -40,8 +40,18 @@ applies twelve low-risk rewrites:
   condition evaluation
 - `unnecessary-empty-statement` for standalone semicolons that are direct
   statement-list items rather than control-flow bodies
+- `redundant-type-identity` for `never` union members and `unknown`
+  intersection members when another member remains
+- `duplicate-type-assertion` for adjacent `as` or angle-bracket assertions
+  whose type source is exactly equal
+- `duplicate-non-null-assertion` for adjacent repeated `!` assertions
+- `jsx-boolean-shorthand` for JSX attributes explicitly set to literal `true`
+- `collapsible-else-if` for comment-free else blocks containing only one `if`
+- `invert-empty-if` for direct statement-list branches with an empty first
+  block and a non-empty braced else block
+- `empty-finally` for empty, comment-free finalizers when a catch remains
 
-All twelve also appear during an ordinary scan as findings with `fixable: true`
+All nineteen also appear during an ordinary scan as findings with `fixable: true`
 in JSON and `fixable with --fix` in text. `--fix` stages byte-range edits in
 memory, rejects stale ranges, never applies overlapping ranges in the same pass,
 reparses every result, writes each changed file atomically, rolls earlier files
@@ -53,12 +63,14 @@ Comments inside a candidate span, parser errors, TypeScript declaration files,
 mixed declarations, uninitialized bindings, writes, symlinks, and ambiguous
 shapes are not rewritten; direct `eval` disables `prefer-const`. The fixer
 also retains numeric-literal bracket access, computed `__proto__`, labelled loop
-control, and documented terminal statements. It preserves untouched bytes,
-including BOMs and line endings. Architectural findings, `any`, assertions,
-complex flow, input mutation, async behavior, clones, and naming findings remain
-review-only because changing them requires human judgment.
+control, documented terminal statements, non-literal JSX values, dissimilar
+assertions, identity-only types, and dangling-else-sensitive branches. It
+preserves untouched bytes, including BOMs and line endings. Architectural
+findings, unsafe assertions, complex flow, input mutation, async behavior,
+clones, and naming findings remain review-only because changing them requires
+human judgment.
 
-The CLI currently evaluates 52 finding types for TypeScript and 36 for Rust.
+The CLI currently evaluates 59 finding types for TypeScript and 36 for Rust.
 The local code checks shared by both languages are:
 
 - `long-function`, `complex-function`, and `deep-nesting`

@@ -9,7 +9,9 @@ mod rust;
 mod rust_signals;
 mod rust_syntax;
 mod typescript;
+mod typescript_fix_context;
 mod typescript_fixes;
+mod typescript_fixes_extended;
 mod typescript_signals;
 
 use std::{

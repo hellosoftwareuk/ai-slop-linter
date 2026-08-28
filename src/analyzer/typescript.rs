@@ -35,11 +35,16 @@ pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
         visitor.metrics.facts.top_level_statements = parsed.program.body.len();
         visitor.visit_program(&parsed.program);
         if let Some(semantic) = semantic.filter(|result| result.diagnostics.is_empty()) {
-            visitor.metrics.facts.proposed_fixes = super::typescript_fixes::collect(
+            let mut fixes = super::typescript_fixes::collect(
                 &parsed.program,
                 source,
                 semantic.semantic.scoping(),
             );
+            fixes.extend(super::typescript_fixes_extended::collect(
+                &parsed.program,
+                source,
+            ));
+            visitor.metrics.facts.proposed_fixes = fixes;
         }
     }
 

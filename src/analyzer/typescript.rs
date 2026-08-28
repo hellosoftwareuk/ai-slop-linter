@@ -8,6 +8,7 @@ use oxc_ast::{
 };
 use oxc_ast_visit::Visit;
 use oxc_parser::Parser;
+use oxc_semantic::SemanticBuilder;
 use oxc_span::{SourceType, Span};
 
 use crate::model::{DependencyKind, Language, ModuleDependency};
@@ -27,8 +28,19 @@ pub(super) fn collect(path: &Path, source: &str) -> Result<ParsedFacts> {
     let parsed = Parser::new(&allocator, source, source_type).parse();
     let mut visitor = TypeScriptVisitor::new(source);
     if !parsed.panicked {
+        let semantic = parsed
+            .diagnostics
+            .is_empty()
+            .then(|| SemanticBuilder::new().build(&parsed.program));
         visitor.metrics.facts.top_level_statements = parsed.program.body.len();
         visitor.visit_program(&parsed.program);
+        if let Some(semantic) = semantic.filter(|result| result.diagnostics.is_empty()) {
+            visitor.metrics.facts.proposed_fixes = super::typescript_fixes::collect(
+                &parsed.program,
+                source,
+                semantic.semantic.scoping(),
+            );
+        }
     }
 
     Ok(ParsedFacts {

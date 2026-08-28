@@ -5,6 +5,7 @@ use clap::Parser;
 use slop::{
     cli::{Cli, OutputFormat},
     discovery::{scan, ScanOptions},
+    fixer,
     report::{print_json, print_text},
     scoring::build_report,
 };
@@ -31,16 +32,22 @@ fn run() -> Result<ExitCode> {
         .map_err(|error| anyhow::anyhow!("cannot access '{}': {error}", cli.path.display()))?;
 
     let started = Instant::now();
-    let analyses = scan(
-        &root,
-        &ScanOptions {
-            include_declarations: cli.include_declarations,
-            respect_ignores: !cli.no_ignore,
-            max_file_bytes: cli.max_file_bytes,
-            threads: cli.threads,
-        },
-    )?;
-    let report = build_report(&root, analyses, started.elapsed());
+    let options = ScanOptions {
+        include_declarations: cli.include_declarations,
+        respect_ignores: !cli.no_ignore,
+        max_file_bytes: cli.max_file_bytes,
+        threads: cli.threads,
+    };
+    let mut analyses = scan(&root, &options)?;
+    let fixes = if cli.fix {
+        let summary = fixer::apply(&root, &analyses)?;
+        analyses = scan(&root, &options)?;
+        summary
+    } else {
+        Default::default()
+    };
+    let mut report = build_report(&root, analyses, started.elapsed());
+    report.fixes = fixes;
 
     match cli.format {
         OutputFormat::Text => print_text(&report, cli.top),

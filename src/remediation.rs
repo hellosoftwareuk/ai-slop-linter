@@ -6,6 +6,11 @@ struct RuleRemediation {
 }
 
 const RULE_REMEDIATIONS: &[RuleRemediation] = &[
+    RuleRemediation { rule: "prefer-const", guidance: "Change only bindings proven by semantic reference analysis to have an initializer and no writes after declaration." },
+    RuleRemediation { rule: "object-property-shorthand", guidance: "Use identifier shorthand where an ordinary object property repeats the same safe key and value name." },
+    RuleRemediation { rule: "redundant-boolean-conditional", guidance: "Replace the literal true/false branches with an explicitly parenthesized boolean coercion while evaluating the condition once." },
+    RuleRemediation { rule: "duplicate-type-member", guidance: "Remove exact repeated union or intersection members while preserving the first occurrence and surrounding type semantics." },
+    RuleRemediation { rule: "collapsible-if", guidance: "Combine the two strict, else-free nested conditions with short-circuiting AND while retaining the original body." },
     RuleRemediation { rule: "long-function", guidance: "Extract cohesive named operations around domain steps, keeping data ownership and the public contract explicit." },
     RuleRemediation { rule: "complex-function", guidance: "Flatten control flow with guard clauses and extract decision policies into named, independently testable functions." },
     RuleRemediation { rule: "deep-nesting", guidance: "Replace nested branches with early exits or extracted operations so each scope has one clear responsibility." },

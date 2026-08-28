@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
-use crate::model::{AstMetrics, Category, Diagnostic, FileAnalysis, FileSummary, ScanReport};
+use crate::model::{
+    AstMetrics, Category, Diagnostic, FileAnalysis, FileSummary, FixSummary, ScanReport,
+};
 
 // A score of 63 corresponds to 75 debt points/KLOC. This keeps ordinary
 // repositories spread across the scale while still making dense hotspots loud.
@@ -70,6 +72,7 @@ pub fn build_report(root: &Path, analyses: Vec<FileAnalysis>, elapsed: Duration)
         category_scores,
         hotspots,
         findings,
+        fixes: FixSummary::default(),
     }
 }
 

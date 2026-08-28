@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(default_value = ".")]
     pub path: PathBuf,
 
+    /// Apply only conservative, AST-proven TypeScript fixes, then rescan.
+    #[arg(long)]
+    pub fix: bool,
+
     /// Output format.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,

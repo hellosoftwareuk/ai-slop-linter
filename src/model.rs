@@ -106,6 +106,7 @@ pub struct Finding {
     pub message: String,
     pub evidence: String,
     pub remediation_prompt: String,
+    pub fixable: bool,
 }
 
 impl Finding {
@@ -131,8 +132,24 @@ impl Finding {
             message,
             evidence,
             remediation_prompt,
+            fixable: false,
         }
     }
+
+    pub fn with_fixable(mut self) -> Self {
+        self.fixable = true;
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProposedFix {
+    pub rule: &'static str,
+    pub start: usize,
+    pub end: usize,
+    pub expected: String,
+    pub replacement: String,
+    pub line: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -210,6 +227,15 @@ pub struct FileAnalysis {
     pub dependencies: Vec<ModuleDependency>,
     pub clone_candidates: Vec<CloneCandidate>,
     pub top_level_statements: usize,
+    pub source_fingerprint: u64,
+    pub proposed_fixes: Vec<ProposedFix>,
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct FixSummary {
+    pub requested: bool,
+    pub applied: usize,
+    pub files_changed: usize,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -247,4 +273,5 @@ pub struct ScanReport {
     pub category_scores: BTreeMap<Category, u8>,
     pub hotspots: Vec<FileSummary>,
     pub findings: Vec<Finding>,
+    pub fixes: FixSummary,
 }

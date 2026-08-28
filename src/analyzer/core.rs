@@ -1,4 +1,4 @@
-use crate::model::{CloneCandidate, ModuleDependency};
+use crate::model::{CloneCandidate, ModuleDependency, ProposedFix};
 
 #[derive(Debug)]
 pub(super) struct HclBlockMetrics {
@@ -112,6 +112,7 @@ pub(super) struct Facts {
     pub terragrunt_dependencies: Vec<usize>,
     pub terragrunt_config_reads: Vec<usize>,
     pub terragrunt_includes: Vec<usize>,
+    pub proposed_fixes: Vec<ProposedFix>,
 }
 
 #[derive(Debug, Default)]

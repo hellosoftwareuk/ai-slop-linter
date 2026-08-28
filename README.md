@@ -12,9 +12,40 @@ slop src/features/billing
 slop . --format json
 slop . --fail-above 35
 slop . --top 50
+slop src --fix
 ```
 
-The CLI currently evaluates 40 finding types for TypeScript and 36 for Rust.
+Scans are read-only unless `--fix` is present. The fixer currently supports
+TypeScript and deliberately has no unsafe mode or configuration surface. It
+applies five low-risk rewrites:
+
+- `prefer-const` only when Oxc's semantic binding graph proves one initialized
+  `let` binding has no writes
+- `object-property-shorthand` for ordinary identifier pairs such as
+  `{ customer: customer }`
+- `redundant-boolean-conditional` for exact `condition ? true : false` and
+  reversed literal branches, retaining one condition evaluation
+- `duplicate-type-member` for exact repeated union or intersection members
+- `collapsible-if` for strict, else-free `if` blocks containing only one nested
+  braced `if`
+
+All five also appear during an ordinary scan as findings with `fixable: true` in
+JSON and `fixable with --fix` in text. `--fix` stages byte-range edits in memory,
+rejects stale ranges, never applies overlapping ranges in the same pass,
+reparses every result, writes each changed file atomically, rolls earlier files
+back if a write fails, and then performs a fresh scan. The score and
+`--fail-above` decision therefore describe the post-fix tree. A second `--fix`
+run is expected to make zero changes.
+
+Comments inside a candidate span, parser errors, TypeScript declaration files,
+mixed declarations, uninitialized bindings, writes, symlinks, and ambiguous
+shapes are not rewritten; direct `eval` disables `prefer-const`. The fixer
+preserves untouched bytes, including BOMs and line endings. Architectural
+findings, `any`, assertions, complex flow, input mutation, async behavior,
+clones, and naming findings remain review-only because changing them requires
+human judgment.
+
+The CLI currently evaluates 45 finding types for TypeScript and 36 for Rust.
 The local code checks shared by both languages are:
 
 - `long-function`, `complex-function`, and `deep-nesting`

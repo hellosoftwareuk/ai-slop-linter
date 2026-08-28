@@ -35,8 +35,15 @@ pub fn print_text(report: &ScanReport, top: usize) {
         );
         let _ = writeln!(
             output,
-            "        {} [{}; +{:.1}]",
-            finding.evidence, finding.rule, finding.points
+            "        {} [{}; +{:.1}{}]",
+            finding.evidence,
+            finding.rule,
+            finding.points,
+            if finding.fixable {
+                "; fixable with --fix"
+            } else {
+                ""
+            }
         );
         let _ = writeln!(output, "        LLM prompt: {}", finding.remediation_prompt);
     }
@@ -95,6 +102,16 @@ fn print_summary(output: &mut impl Write, report: &ScanReport) {
         report.parse_errors,
         plural(report.parse_errors),
     );
+    if report.fixes.requested {
+        let _ = writeln!(
+            output,
+            "Applied {} safe TypeScript fix{} across {} file{}; results below are from the post-fix rescan",
+            report.fixes.applied,
+            plural(report.fixes.applied),
+            report.fixes.files_changed,
+            plural(report.fixes.files_changed),
+        );
+    }
     let macro_trees = report.metrics.macro_invocations + report.metrics.macro_definitions;
     let _ = writeln!(
         output,

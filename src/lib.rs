@@ -1,6 +1,7 @@
 pub mod analyzer;
 pub mod cli;
 pub mod discovery;
+pub mod fixer;
 pub mod model;
 pub mod remediation;
 pub mod report;

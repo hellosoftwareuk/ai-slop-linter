@@ -51,6 +51,8 @@ fn report_has_rule(report: &slop::model::ScanReport, rule: &str) -> bool {
 
 #[path = "analysis/basic.rs"]
 mod basic;
+#[path = "analysis/fixes.rs"]
+mod fixes;
 #[path = "analysis/flow.rs"]
 mod flow;
 #[path = "analysis/hcl.rs"]

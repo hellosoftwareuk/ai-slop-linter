@@ -1,5 +1,7 @@
 # slop
 
+[![Slop analysis](https://github.com/hellosoftwareuk/ai-slop-linter/actions/workflows/slop-analysis.yml/badge.svg)](https://github.com/hellosoftwareuk/ai-slop-linter/actions/workflows/slop-analysis.yml)
+
 `slop` is a fast, native CLI that scans TypeScript, TSX, Rust, Terraform, and
 Terragrunt syntax trees for maintainability hotspots. Point it at a repository
 or any subfolder:

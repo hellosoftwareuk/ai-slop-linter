@@ -1,0 +1,6 @@
+{
+  "name": "@slop-test/api",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

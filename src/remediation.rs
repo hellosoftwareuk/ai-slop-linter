@@ -1,0 +1,79 @@
+use crate::model::Language;
+
+struct RuleRemediation {
+    rule: &'static str,
+    guidance: &'static str,
+}
+
+const RULE_REMEDIATIONS: &[RuleRemediation] = &[
+    RuleRemediation { rule: "long-function", guidance: "Extract cohesive named operations around domain steps, keeping data ownership and the public contract explicit." },
+    RuleRemediation { rule: "complex-function", guidance: "Flatten control flow with guard clauses and extract decision policies into named, independently testable functions." },
+    RuleRemediation { rule: "deep-nesting", guidance: "Replace nested branches with early exits or extracted operations so each scope has one clear responsibility." },
+    RuleRemediation { rule: "parameter-bundle", guidance: "Introduce a meaningful parameter object or split responsibilities; do not hide unrelated values in a generic options bag." },
+    RuleRemediation { rule: "large-file", guidance: "Split the file along cohesive domain responsibilities and keep the public entrypoint small and explicit." },
+    RuleRemediation { rule: "vague-names", guidance: "Rename bindings for their domain meaning and role, avoiding generic placeholders that force readers to infer intent." },
+    RuleRemediation { rule: "wrapper-cluster", guidance: "Remove pass-through layers or consolidate them behind one abstraction that owns a real policy or transformation." },
+    RuleRemediation { rule: "boolean-soup", guidance: "Name meaningful predicates, simplify equivalent logic, and use a decision table or policy function when combinations encode business rules." },
+    RuleRemediation { rule: "else-if-chain", guidance: "Replace the serial chain with named strategies, a lookup table, or an explicit state/dispatch model where appropriate." },
+    RuleRemediation { rule: "branch-fanout", guidance: "Partition cases by responsibility or move dispatch to a table/strategy while preserving exhaustive behavior." },
+    RuleRemediation { rule: "exit-point-cluster", guidance: "Group validation and failure handling into clear phases, retaining useful guard clauses but reducing scattered termination paths." },
+    RuleRemediation { rule: "branch-dense-function", guidance: "Spread compressed decisions into named steps so the main function reads as an ordered workflow." },
+    RuleRemediation { rule: "nested-callbacks", guidance: "Extract named callbacks or use a sequential async/control-flow structure that makes execution order visible." },
+    RuleRemediation { rule: "nested-ternary", guidance: "Replace nested conditional expressions with named predicates or an explicit statement-level decision." },
+    RuleRemediation { rule: "any-cluster", guidance: "Model the actual data shape, use unknown at untrusted boundaries, and narrow it with validation before use." },
+    RuleRemediation { rule: "assertion-cluster", guidance: "Move validation to the boundary and derive trusted types so downstream code no longer needs repeated casts or non-null assertions." },
+    RuleRemediation { rule: "dependency-cycle", guidance: "Identify the shared policy causing the cycle, move it behind a lower-level contract, and make dependencies point in one direction." },
+    RuleRemediation { rule: "module-fanout", guidance: "Split orchestration from domain work and depend on cohesive facades rather than many implementation modules." },
+    RuleRemediation { rule: "coupling-hub", guidance: "Separate inbound API responsibilities from outbound orchestration so changes do not converge on one module." },
+    RuleRemediation { rule: "barrel-maze", guidance: "Collapse re-export layers and expose a single intentional package boundary close to the implementation." },
+    RuleRemediation { rule: "unstable-dependency", guidance: "Invert the dependency through a stable contract owned by the stable module, leaving volatile details behind the boundary." },
+    RuleRemediation { rule: "workspace-boundary-bypass", guidance: "Import from the package's declared public export, or deliberately add a supported export without exposing unrelated internals." },
+    RuleRemediation { rule: "crowded-folder", guidance: "Group files into cohesive domain subfolders with explicit entrypoints instead of arbitrary size-based buckets." },
+    RuleRemediation { rule: "wide-folder", guidance: "Introduce meaningful intermediate domain groupings while avoiding empty taxonomy-only directories." },
+    RuleRemediation { rule: "deep-folder-chain", guidance: "Collapse transit-only directories and retain levels only where they separate real sibling choices." },
+    RuleRemediation { rule: "wrapper-directory", guidance: "Remove the forwarding directory or move real boundary responsibility into its entrypoint." },
+    RuleRemediation { rule: "folder-dependency-cycle", guidance: "Choose an ownership direction between the folders and extract shared contracts into a lower-level cohesive area." },
+    RuleRemediation { rule: "folder-coupling-hub", guidance: "Split the folder by responsibility and replace broad internal access with small public boundaries." },
+    RuleRemediation { rule: "misplaced-module", guidance: "Move the module beside the code it primarily depends on, or reduce that dependency concentration if its current ownership is intentional." },
+    RuleRemediation { rule: "catch-all-folder", guidance: "Partition the generic folder by domain capability and relocate helpers next to their principal consumers." },
+    RuleRemediation { rule: "async-without-await", guidance: "Remove unnecessary async semantics, or restore the missing awaited operation while preserving the caller's intended contract." },
+    RuleRemediation { rule: "mutation-cluster", guidance: "Replace scattered reassignment with immutable transformations or smaller state transitions whose inputs and outputs are explicit." },
+    RuleRemediation { rule: "boolean-parameter-cluster", guidance: "Replace interacting boolean flags with a named mode, enum, discriminated union, or configuration type that rules out invalid combinations." },
+    RuleRemediation { rule: "empty-catch", guidance: "Handle, translate, or deliberately propagate the error; if suppression is intentional, document the exact safe failure condition." },
+    RuleRemediation { rule: "panic-path-cluster", guidance: "Propagate structured errors or prove invariants at one boundary instead of scattering unwrap, expect, panic, todo, or unreachable paths." },
+    RuleRemediation { rule: "structural-clone", guidance: "Consolidate the repeated policy behind one domain-owned operation, while keeping genuinely different behavior explicit instead of introducing a generic parameter maze." },
+    RuleRemediation { rule: "tangled-chain", guidance: "Break the fluent pipeline into named transformations at changes in cardinality, failure behavior, or responsibility so intermediate intent is inspectable." },
+    RuleRemediation { rule: "input-mutation", guidance: "Return an updated value or make mutation an explicit command contract; avoid surprising callers by changing borrowed or passed-in state implicitly." },
+    RuleRemediation { rule: "error-laundering", guidance: "Propagate or translate the failure into a typed outcome instead of returning an ordinary default that is indistinguishable from successful empty data." },
+    RuleRemediation { rule: "assertionless-test", guidance: "Assert an externally observable outcome or expected failure; remove the test if execution alone cannot distinguish correct from broken behavior." },
+    RuleRemediation { rule: "boolean-call-soup", guidance: "Replace positional boolean literals with a named options object, enum, or mode so the call site states its behavior." },
+];
+
+pub fn finding_prompt(rule: &str, path: &str, line: usize, evidence: &str) -> String {
+    let guidance = RULE_REMEDIATIONS
+        .iter()
+        .find(|entry| entry.rule == rule)
+        .map_or(
+            "Reduce the measured hotspot with the smallest behavior-preserving refactor.",
+            |entry| entry.guidance,
+        );
+    format!(
+        "Review `{path}:{line}` for `{rule}`. Evidence: {evidence}. {guidance} Preserve observable behavior, add or update focused tests, and explain the resulting trade-offs."
+    )
+}
+
+pub fn parser_prompt(path: &str, language: Language, count: usize) -> String {
+    let parser = match language {
+        Language::TypeScript => "TypeScript/TSX parser",
+        Language::Rust => "Rust parser",
+    };
+    format!(
+        "Repair the {count} syntax error(s) reported by the {parser} in `{path}`. First reproduce them with the project's normal formatter or compiler, make the smallest syntax-preserving correction, then rerun Slop and the relevant tests. Do not silence or exclude the file."
+    )
+}
+
+pub fn fatal_prompt(error: &anyhow::Error) -> String {
+    format!(
+        "Diagnose this Slop CLI failure: `{error:#}`. Verify the target path, permissions, UTF-8 source, and command arguments; fix the underlying cause rather than bypassing discovery, then rerun the same command."
+    )
+}

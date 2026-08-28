@@ -1,0 +1,58 @@
+use std::{process::ExitCode, time::Instant};
+
+use anyhow::Result;
+use clap::Parser;
+use slop::{
+    cli::{Cli, OutputFormat},
+    discovery::{scan, ScanOptions},
+    report::{print_json, print_text},
+    scoring::build_report,
+};
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("error: {error:#}");
+            eprintln!(
+                "LLM remediation prompt: {}",
+                slop::remediation::fatal_prompt(&error)
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<ExitCode> {
+    let cli = Cli::parse();
+    let root = cli
+        .path
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("cannot access '{}': {error}", cli.path.display()))?;
+
+    let started = Instant::now();
+    let analyses = scan(
+        &root,
+        &ScanOptions {
+            include_declarations: cli.include_declarations,
+            respect_ignores: !cli.no_ignore,
+            max_file_bytes: cli.max_file_bytes,
+            threads: cli.threads,
+        },
+    )?;
+    let report = build_report(&root, analyses, started.elapsed());
+
+    match cli.format {
+        OutputFormat::Text => print_text(&report, cli.top),
+        OutputFormat::Json => print_json(&report)?,
+    }
+
+    if cli
+        .fail_above
+        .is_some_and(|threshold| report.score > threshold)
+    {
+        Ok(ExitCode::from(2))
+    } else {
+        Ok(ExitCode::SUCCESS)
+    }
+}

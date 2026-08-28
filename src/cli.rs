@@ -1,0 +1,49 @@
+use std::path::PathBuf;
+
+use clap::{Parser, ValueEnum};
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "slop",
+    version,
+    about = "Measure TypeScript and Rust maintainability debt at native speed"
+)]
+pub struct Cli {
+    /// Folder, repository, or repository subfolder to scan.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+
+    /// Maximum number of findings shown in text output.
+    #[arg(long, default_value_t = 20)]
+    pub top: usize,
+
+    /// Exit with code 2 when the slop score is above this value.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+    pub fail_above: Option<u8>,
+
+    /// Include generated TypeScript declaration files (*.d.ts).
+    #[arg(long)]
+    pub include_declarations: bool,
+
+    /// Scan hidden and gitignored files.
+    #[arg(long)]
+    pub no_ignore: bool,
+
+    /// Worker threads. Zero lets the walker choose.
+    #[arg(long, default_value_t = 0)]
+    pub threads: usize,
+
+    /// Skip individual files larger than this many bytes.
+    #[arg(long, default_value_t = 2_000_000)]
+    pub max_file_bytes: u64,
+}

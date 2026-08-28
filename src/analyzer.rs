@@ -1,6 +1,7 @@
 mod behavior_rules;
 mod clone_detection;
 mod core;
+mod fix_rules;
 mod hcl;
 mod hcl_rules;
 mod rules;

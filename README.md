@@ -17,7 +17,7 @@ slop src --fix
 
 Scans are read-only unless `--fix` is present. The fixer currently supports
 TypeScript and deliberately has no unsafe mode or configuration surface. It
-applies five low-risk rewrites:
+applies twelve low-risk rewrites:
 
 - `prefer-const` only when Oxc's semantic binding graph proves one initialized
   `let` binding has no writes
@@ -28,10 +28,22 @@ applies five low-risk rewrites:
 - `duplicate-type-member` for exact repeated union or intersection members
 - `collapsible-if` for strict, else-free `if` blocks containing only one nested
   braced `if`
+- `prefer-dot-property` for static ASCII identifier access such as
+  `customer["name"]`, including optional chains
+- `prefer-static-object-key` for safe computed keys such as
+  `{ ["customer"]: customer }`, excluding `__proto__`
+- `empty-else` for structurally empty, comment-free else blocks
+- `redundant-terminal-return` for an argument-free final function statement
+- `redundant-terminal-continue` for an unlabeled final statement in a braced
+  loop body
+- `redundant-boolean-return` for exact true/false return branches, retaining one
+  condition evaluation
+- `unnecessary-empty-statement` for standalone semicolons that are direct
+  statement-list items rather than control-flow bodies
 
-All five also appear during an ordinary scan as findings with `fixable: true` in
-JSON and `fixable with --fix` in text. `--fix` stages byte-range edits in memory,
-rejects stale ranges, never applies overlapping ranges in the same pass,
+All twelve also appear during an ordinary scan as findings with `fixable: true`
+in JSON and `fixable with --fix` in text. `--fix` stages byte-range edits in
+memory, rejects stale ranges, never applies overlapping ranges in the same pass,
 reparses every result, writes each changed file atomically, rolls earlier files
 back if a write fails, and then performs a fresh scan. The score and
 `--fail-above` decision therefore describe the post-fix tree. A second `--fix`
@@ -40,12 +52,13 @@ run is expected to make zero changes.
 Comments inside a candidate span, parser errors, TypeScript declaration files,
 mixed declarations, uninitialized bindings, writes, symlinks, and ambiguous
 shapes are not rewritten; direct `eval` disables `prefer-const`. The fixer
-preserves untouched bytes, including BOMs and line endings. Architectural
-findings, `any`, assertions, complex flow, input mutation, async behavior,
-clones, and naming findings remain review-only because changing them requires
-human judgment.
+also retains numeric-literal bracket access, computed `__proto__`, labelled loop
+control, and documented terminal statements. It preserves untouched bytes,
+including BOMs and line endings. Architectural findings, `any`, assertions,
+complex flow, input mutation, async behavior, clones, and naming findings remain
+review-only because changing them requires human judgment.
 
-The CLI currently evaluates 45 finding types for TypeScript and 36 for Rust.
+The CLI currently evaluates 52 finding types for TypeScript and 36 for Rust.
 The local code checks shared by both languages are:
 
 - `long-function`, `complex-function`, and `deep-nesting`

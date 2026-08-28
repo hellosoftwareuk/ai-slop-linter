@@ -36,72 +36,9 @@ pub(super) fn evaluate(path: &str, file_lines: usize, facts: &Facts) -> (AstMetr
     assess_wrappers(path, &thin_wrappers, &mut findings);
     super::behavior_rules::assess_file(path, facts, &mut findings);
     super::hcl_rules::assess(path, facts, &mut findings);
-    assess_safe_fixes(path, facts, &mut findings);
+    super::fix_rules::assess(path, facts, &mut findings);
 
     (metrics, findings)
-}
-
-fn assess_safe_fixes(path: &str, facts: &Facts, findings: &mut Vec<Finding>) {
-    for rule in [
-        "prefer-const",
-        "object-property-shorthand",
-        "redundant-boolean-conditional",
-        "duplicate-type-member",
-        "collapsible-if",
-    ] {
-        let mut matching = facts
-            .proposed_fixes
-            .iter()
-            .filter(|candidate| candidate.rule == rule);
-        let Some(first) = matching.next() else {
-            continue;
-        };
-        let count = 1 + matching.count();
-        let (category, message, noun) = match rule {
-            "prefer-const" => (
-                Category::Readability,
-                "Immutable bindings are declared as mutable",
-                "binding",
-            ),
-            "object-property-shorthand" => (
-                Category::Readability,
-                "Object properties repeat their binding names",
-                "property",
-            ),
-            "redundant-boolean-conditional" => (
-                Category::Readability,
-                "Conditional expressions restate boolean values",
-                "conditional",
-            ),
-            "duplicate-type-member" => (
-                Category::TypeSafety,
-                "Type expressions repeat identical members",
-                "type expression",
-            ),
-            "collapsible-if" => (
-                Category::Complexity,
-                "Nested if statements can express one decision",
-                "if statement",
-            ),
-            _ => unreachable!(),
-        };
-        findings.push(
-            Finding::new(
-                rule,
-                category,
-                (1.0 + count.saturating_sub(1) as f64 * 0.25).min(4.0),
-                (path.to_owned(), first.line),
-                (
-                    message,
-                    format!(
-                        "{count} {noun}{} can be rewritten without changing behavior",
-                        if count == 1 { "" } else { "s" }
-                    ),
-                ),
-            )
-            .with_fixable(),
-        );
-    }
 }
 
 fn build_metrics(facts: &Facts, thin_wrappers: usize) -> AstMetrics {

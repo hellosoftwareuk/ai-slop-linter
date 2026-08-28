@@ -4,6 +4,16 @@ use slop::fixer;
 
 use super::*;
 
+const SECOND_BATCH_RULES: [&str; 7] = [
+    "prefer-dot-property",
+    "prefer-static-object-key",
+    "empty-else",
+    "redundant-terminal-return",
+    "redundant-terminal-continue",
+    "redundant-boolean-return",
+    "unnecessary-empty-statement",
+];
+
 #[test]
 fn typescript_safe_fix_findings_are_ast_backed_and_explicitly_fixable() {
     let source = r#"
@@ -73,6 +83,141 @@ function run(first: boolean, second: boolean) {
     assert_eq!(analysis.parse_errors, 0);
     assert!(
         analysis.proposed_fixes.is_empty(),
+        "unexpected candidates: {:?}",
+        analysis.proposed_fixes
+    );
+}
+
+#[test]
+fn second_safe_fix_batch_is_detected_and_applied_to_a_fixed_point() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("second-batch.ts");
+    let source = r#";
+declare const customer: { name: string } | undefined;
+declare const records: string[];
+declare const ready: boolean;
+const direct = customer["name"];
+const optional = customer?.["name"];
+const payload = { ["customer"]: customer };
+
+function decide(): boolean {
+  if (ready) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+function finish(): void {
+  use(payload);
+  return;
+}
+
+for (const record of records) {
+  use(record);
+  continue;
+}
+
+if (ready) {
+  use(direct, optional);
+} else {}
+"#;
+    fs::write(&path, source)?;
+    let analysis = analyze_file(
+        &path,
+        directory.path(),
+        source.to_owned(),
+        source.len() as u64,
+    )?;
+    let rules = analysis
+        .proposed_fixes
+        .iter()
+        .map(|candidate| candidate.rule)
+        .collect::<Vec<_>>();
+    for expected in SECOND_BATCH_RULES {
+        assert!(rules.contains(&expected), "missing {expected}: {rules:?}");
+        assert!(analysis
+            .findings
+            .iter()
+            .any(|finding| finding.rule == expected && finding.fixable));
+    }
+
+    let summary = fixer::apply(directory.path(), &[analysis])?;
+    assert_eq!(summary.files_changed, 1);
+    assert_eq!(summary.applied, 9, "summary: {summary:?}");
+    let fixed = fs::read_to_string(&path)?;
+    assert!(fixed.starts_with('\n'));
+    assert!(fixed.contains("customer.name"));
+    assert!(fixed.contains("customer?.name"));
+    assert!(fixed.contains("const payload = { customer };"));
+    assert!(fixed.contains("return (!!(ready));"));
+    assert!(!fixed.contains("return;"));
+    assert!(!fixed.contains("continue;"));
+    assert!(!fixed.contains("else {}"));
+
+    let rescanned = analyze_file(&path, directory.path(), fixed.clone(), fixed.len() as u64)?;
+    assert_eq!(rescanned.parse_errors, 0);
+    assert!(rescanned.proposed_fixes.is_empty());
+    let second = fixer::apply(directory.path(), &[rescanned])?;
+    assert_eq!(second.applied, 0);
+    assert_eq!(fs::read_to_string(path)?, fixed);
+    Ok(())
+}
+
+#[test]
+fn second_batch_preserves_ambiguous_or_documented_shapes() {
+    let source = r#"
+declare const object: Record<string, unknown>;
+declare const key: string;
+declare const active: boolean;
+const numeric = 1["toString"];
+const invalidName = object["not-valid"];
+const dynamic = object[key];
+const prototype = { ["__proto__"]: object };
+const invalidKey = { ["not-valid"]: object };
+
+if (active) {
+  work();
+} else {
+  /* deliberately empty */
+}
+
+function documentedReturn(): void {
+  work();
+  // explicit boundary
+  return;
+}
+
+outer: while (active) {
+  continue outer;
+}
+
+while (active) {
+  work();
+  // explicit loop edge
+  continue;
+}
+
+function documentedDecision(): boolean {
+  if (active) {
+    return true; // branch documents policy
+  } else {
+    return false;
+  }
+}
+
+function documentedNoOp(): void {
+  ; // deliberate no-op
+  work();
+}
+"#;
+    let analysis = analyze_inline("second-near-misses.ts", source);
+    assert_eq!(analysis.parse_errors, 0);
+    assert!(
+        analysis
+            .proposed_fixes
+            .iter()
+            .all(|candidate| !SECOND_BATCH_RULES.contains(&candidate.rule)),
         "unexpected candidates: {:?}",
         analysis.proposed_fixes
     );

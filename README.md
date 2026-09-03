@@ -15,6 +15,34 @@ slop . --top 50
 slop src --fix
 ```
 
+## Codex hooks
+
+Install the repository integration with one command:
+
+```sh
+slop codex install
+```
+
+This generates `.codex/hooks.json`; there is still no Slop configuration file
+or threshold to tune. Restart Codex after installation and approve the
+repository hooks when Codex asks. The `slop` executable must be available on
+`PATH` for the hook process.
+
+The integration is read-only and compares each turn with its starting state:
+
+- `UserPromptSubmit` captures a fast repository baseline before Codex works.
+- `PostToolUse` scans only files named by successful edit/write operations and
+  immediately adds newly introduced local findings to Codex's context.
+- `Stop` rescans the repository once to catch changes made by shell tools plus
+  new architectural or structural findings. It asks Codex for one repair pass
+  before allowing the turn to finish, avoiding an infinite stop-hook loop.
+
+Existing findings are baseline debt and remain quiet. Moving a finding to a
+new file, introducing a new rule violation, or increasing a file's syntax-error
+count is treated as new debt. The hook never invokes `--fix`; Codex receives
+the finding, evidence, location, and remediation prompt and makes a normal
+reviewable edit instead.
+
 Scans are read-only unless `--fix` is present. The fixer currently supports
 TypeScript and deliberately has no unsafe mode or configuration surface. It
 applies twenty-four low-risk rewrites:

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -103,6 +104,40 @@ pub fn scan(root: &Path, options: &ScanOptions) -> Result<Vec<FileAnalysis>> {
         .into_inner()
         .expect("analysis lock poisoned");
     analyses.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+    Ok(analyses)
+}
+
+/// Scan an explicit set of files while retaining paths relative to the repository root.
+/// Missing and unsupported paths are ignored because editor hooks can observe deletes.
+pub fn scan_files(
+    root: &Path,
+    paths: impl IntoIterator<Item = PathBuf>,
+    options: &ScanOptions,
+) -> Result<Vec<FileAnalysis>> {
+    let mut unique = BTreeSet::new();
+    for path in paths {
+        let path = if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        };
+        if !path.is_file() || path.is_symlink() {
+            continue;
+        }
+        let path = path
+            .canonicalize()
+            .with_context(|| format!("cannot resolve '{}'", path.display()))?;
+        if path.starts_with(root) {
+            unique.insert(path);
+        }
+    }
+
+    let mut analyses = Vec::with_capacity(unique.len());
+    for path in unique {
+        if let Some(analysis) = scan_one(&path, root, options)? {
+            analyses.push(analysis);
+        }
+    }
     Ok(analyses)
 }
 

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
@@ -15,6 +15,9 @@ pub enum OutputFormat {
     about = "Measure TypeScript, Rust, Terraform, and Terragrunt maintainability debt at native speed"
 )]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Folder, repository, or repository subfolder to scan.
     #[arg(default_value = ".")]
     pub path: PathBuf,
@@ -50,4 +53,27 @@ pub struct Cli {
     /// Skip individual files larger than this many bytes.
     #[arg(long, default_value_t = 2_000_000)]
     pub max_file_bytes: u64,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Install or run the zero-configuration Codex integration.
+    Codex {
+        #[command(subcommand)]
+        command: CodexCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CodexCommand {
+    /// Register Slop hooks in the nearest repository.
+    Install {
+        /// Repository or subfolder in which to install the hooks.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Handle one Codex hook event from standard input.
+    #[command(hide = true)]
+    Hook,
 }

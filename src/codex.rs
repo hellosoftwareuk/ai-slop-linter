@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::BTreeSet,
     fs,
     io::{self, Read, Write},
     path::{Component, Path, PathBuf},
@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
+    delta::{AnalysisBaseline, DiagnosticDelta},
     discovery::{scan, scan_files, ScanOptions},
-    model::{Diagnostic, FileAnalysis, Finding, ScanReport},
+    model::{FileAnalysis, Finding, ScanReport},
     scoring::build_report,
 };
 
@@ -41,8 +42,8 @@ struct HookInput {
 #[derive(Debug, Serialize, Deserialize)]
 struct TurnBaseline {
     root: PathBuf,
-    finding_identities: HashSet<String>,
-    diagnostic_counts: HashMap<String, usize>,
+    #[serde(flatten)]
+    analysis: AnalysisBaseline,
 }
 
 pub fn run_hook() -> Result<()> {
@@ -69,12 +70,7 @@ fn capture_baseline(event: &HookInput, root: &Path) -> Result<Value> {
     let report = scan_report(root)?;
     let baseline = TurnBaseline {
         root: root.to_path_buf(),
-        finding_identities: report.findings.iter().map(finding_identity).collect(),
-        diagnostic_counts: report
-            .diagnostics
-            .iter()
-            .map(|diagnostic| (diagnostic_key(diagnostic), diagnostic.count))
-            .collect(),
+        analysis: AnalysisBaseline::capture(&report),
     };
     let path = baseline_path(event)?;
     if let Some(parent) = path.parent() {
@@ -101,8 +97,8 @@ fn post_tool_use(event: &HookInput, root: &Path) -> Result<Value> {
         return Ok(json!({}));
     }
     let analyses = scan_files(root, paths, &scan_options())?;
-    let findings = new_file_findings(&analyses, &baseline.finding_identities);
-    let diagnostics = new_file_diagnostics(&analyses, &baseline.diagnostic_counts);
+    let findings = new_file_findings(&analyses, &baseline.analysis);
+    let diagnostics = new_file_diagnostics(&analyses, &baseline.analysis);
     if findings.is_empty() && diagnostics.is_empty() {
         return Ok(json!({}));
     }
@@ -125,38 +121,14 @@ fn stop(event: &HookInput, root: &Path) -> Result<Value> {
     }
 
     let report = scan_report(root)?;
-    let findings = report
-        .findings
-        .iter()
-        .filter(|finding| finding.points > 0.0)
-        .filter(|finding| {
-            !baseline
-                .finding_identities
-                .contains(&finding_identity(finding))
-        })
-        .collect::<Vec<_>>();
-    let diagnostics = report
-        .diagnostics
-        .iter()
-        .filter_map(|diagnostic| {
-            let previous = baseline
-                .diagnostic_counts
-                .get(&diagnostic_key(diagnostic))
-                .copied()
-                .unwrap_or_default();
-            (diagnostic.count > previous).then_some(DiagnosticRef {
-                path: &diagnostic.path,
-                count: diagnostic.count - previous,
-            })
-        })
-        .collect::<Vec<_>>();
+    let delta = baseline.analysis.compare(&report);
 
-    if findings.is_empty() && diagnostics.is_empty() {
+    if delta.findings.is_empty() && delta.diagnostics.is_empty() {
         let _ = fs::remove_file(baseline_path(event)?);
         return Ok(json!({}));
     }
 
-    let feedback = format_feedback(&findings, &diagnostics, "this turn");
+    let feedback = format_feedback(&delta.findings, &delta.diagnostics, "this turn");
     if event.stop_hook_active {
         Ok(json!({ "systemMessage": feedback }))
     } else {
@@ -181,44 +153,35 @@ fn scan_options() -> ScanOptions {
 
 fn new_file_findings<'a>(
     analyses: &'a [FileAnalysis],
-    baseline: &HashSet<String>,
+    baseline: &AnalysisBaseline,
 ) -> Vec<&'a Finding> {
     analyses
         .iter()
         .flat_map(|analysis| analysis.findings.iter())
         .filter(|finding| finding.points > 0.0)
-        .filter(|finding| !baseline.contains(&finding_identity(finding)))
+        .filter(|finding| baseline.is_new_finding(finding))
         .collect()
 }
 
 fn new_file_diagnostics<'a>(
     analyses: &'a [FileAnalysis],
-    baseline: &HashMap<String, usize>,
+    baseline: &AnalysisBaseline,
 ) -> Vec<DiagnosticRef<'a>> {
     analyses
         .iter()
         .filter(|analysis| analysis.parse_errors > 0)
         .filter_map(|analysis| {
-            let key = diagnostic_key_parts(&analysis.display_path, "parse-error");
-            let previous = baseline.get(&key).copied().unwrap_or_default();
-            (analysis.parse_errors > previous).then_some(DiagnosticRef {
+            let increase = baseline.diagnostic_increase(
+                &analysis.display_path,
+                "parse-error",
+                analysis.parse_errors,
+            );
+            (increase > 0).then_some(DiagnosticRef {
                 path: &analysis.display_path,
-                count: analysis.parse_errors - previous,
+                count: increase,
             })
         })
         .collect()
-}
-
-fn finding_identity(finding: &Finding) -> String {
-    format!("{}\0{}\0{}", finding.path, finding.rule, finding.message)
-}
-
-fn diagnostic_key(diagnostic: &Diagnostic) -> String {
-    diagnostic_key_parts(&diagnostic.path, diagnostic.kind)
-}
-
-fn diagnostic_key_parts(path: &str, kind: &str) -> String {
-    format!("{path}\0{kind}")
 }
 
 struct DiagnosticRef<'a> {
@@ -231,7 +194,7 @@ trait FeedbackDiagnostic {
     fn count(&self) -> usize;
 }
 
-impl FeedbackDiagnostic for Diagnostic {
+impl FeedbackDiagnostic for DiagnosticDelta {
     fn path(&self) -> &str {
         &self.path
     }
@@ -465,24 +428,5 @@ mod tests {
             paths.into_iter().collect::<Vec<_>>(),
             vec!["src/app.ts", "src/main.ts"]
         );
-    }
-
-    #[test]
-    fn existing_finding_identity_ignores_line_and_evidence_changes() {
-        let first = Finding::new(
-            "long-function",
-            crate::model::Category::Size,
-            4.0,
-            ("src/app.ts".to_owned(), 10),
-            ("`loadApp` is too long", "61 lines"),
-        );
-        let improved = Finding::new(
-            "long-function",
-            crate::model::Category::Size,
-            4.0,
-            ("src/app.ts".to_owned(), 14),
-            ("`loadApp` is too long", "60 lines"),
-        );
-        assert_eq!(finding_identity(&first), finding_identity(&improved));
     }
 }

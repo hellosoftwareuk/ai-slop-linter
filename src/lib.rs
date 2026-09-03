@@ -1,6 +1,8 @@
 pub mod analyzer;
 pub mod cli;
 pub mod codex;
+pub mod delta;
+pub mod diff;
 pub mod discovery;
 pub mod fixer;
 pub mod model;

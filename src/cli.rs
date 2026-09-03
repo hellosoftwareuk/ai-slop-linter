@@ -1,11 +1,18 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum DiffOutputFormat {
+    Text,
+    Json,
+    Github,
 }
 
 #[derive(Debug, Parser)]
@@ -57,11 +64,37 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Report only maintainability debt introduced by Git changes.
+    Diff(DiffArgs),
+
     /// Install or run the zero-configuration Codex integration.
     Codex {
         #[command(subcommand)]
         command: CodexCommand,
     },
+}
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    /// Repository, subfolder, or source file to compare.
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Compare the working tree with this revision instead of HEAD.
+    #[arg(long, conflicts_with = "staged")]
+    pub base: Option<String>,
+
+    /// Compare the staged index with HEAD, ignoring unstaged changes.
+    #[arg(long)]
+    pub staged: bool,
+
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = DiffOutputFormat::Text)]
+    pub format: DiffOutputFormat,
+
+    /// Maximum number of findings shown in text output.
+    #[arg(long, default_value_t = 20)]
+    pub top: usize,
 }
 
 #[derive(Debug, Subcommand)]

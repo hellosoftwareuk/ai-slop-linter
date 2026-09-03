@@ -3,8 +3,8 @@ use std::{process::ExitCode, time::Instant};
 use anyhow::Result;
 use clap::Parser;
 use slop::{
-    cli::{Cli, CodexCommand, Command, OutputFormat},
-    codex,
+    cli::{Cli, CodexCommand, Command, DiffOutputFormat, OutputFormat},
+    codex, diff,
     discovery::{scan, ScanOptions},
     fixer,
     report::{print_json, print_text},
@@ -27,20 +27,38 @@ fn main() -> ExitCode {
 
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
-    if let Some(Command::Codex { command }) = cli.command {
+    if let Some(command) = cli.command {
         return match command {
-            CodexCommand::Install { path } => {
-                let installed = codex::install(&path)?;
-                println!(
-                    "Installed Slop Codex hooks in {}. Restart Codex and approve the repository hooks when prompted.",
-                    installed.display()
-                );
-                Ok(ExitCode::SUCCESS)
+            Command::Diff(args) => {
+                let report = diff::analyze(&args.path, args.base.as_deref(), args.staged)?;
+                match args.format {
+                    DiffOutputFormat::Text => diff::print_text(&report, args.top),
+                    DiffOutputFormat::Json => diff::print_json(&report)?,
+                    DiffOutputFormat::Github => diff::print_github(&report),
+                }
+                Ok(if report.has_new_debt() {
+                    ExitCode::from(2)
+                } else {
+                    ExitCode::SUCCESS
+                })
             }
-            CodexCommand::Hook => {
-                codex::run_hook()?;
-                Ok(ExitCode::SUCCESS)
-            }
+            Command::Codex { command } => match command {
+                CodexCommand::Install { path } => {
+                    let installed = codex::install(&path)?;
+                    println!(
+                        concat!(
+                            "Installed Slop Codex hooks in {}. ",
+                            "Restart Codex and approve the repository hooks when prompted."
+                        ),
+                        installed.display()
+                    );
+                    Ok(ExitCode::SUCCESS)
+                }
+                CodexCommand::Hook => {
+                    codex::run_hook()?;
+                    Ok(ExitCode::SUCCESS)
+                }
+            },
         };
     }
     let root = cli

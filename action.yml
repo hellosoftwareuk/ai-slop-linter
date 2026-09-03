@@ -1,0 +1,50 @@
+name: Slop changed-code gate
+description: Reject maintainability debt introduced by TypeScript, Rust, Terraform, and Terragrunt changes
+
+inputs:
+  path:
+    description: Repository or repository subfolder to analyze
+    required: false
+    default: .
+  base:
+    description: Git revision to compare with; defaults to the pull request base SHA when available
+    required: false
+    default: ''
+  staged:
+    description: Analyze the staged index instead of the working tree
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust 1.96
+      uses: dtolnay/rust-toolchain@01ba1edad32c6f80dbcce879d3e0fa5a00b2a84e
+      with:
+        toolchain: '1.96'
+
+    - name: Build Slop
+      shell: bash
+      run: cargo build --manifest-path "$GITHUB_ACTION_PATH/Cargo.toml" --locked --release
+
+    - name: Analyze changed code
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_STAGED: ${{ inputs.staged }}
+        PULL_REQUEST_BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        arguments=(diff "$INPUT_PATH" --format github)
+        if [[ "$INPUT_STAGED" == "true" ]]; then
+          arguments+=(--staged)
+        else
+          base="$INPUT_BASE"
+          if [[ -z "$base" ]]; then
+            base="$PULL_REQUEST_BASE"
+          fi
+          if [[ -n "$base" ]]; then
+            arguments+=(--base "$base")
+          fi
+        fi
+        "$GITHUB_ACTION_PATH/target/release/slop" "${arguments[@]}"

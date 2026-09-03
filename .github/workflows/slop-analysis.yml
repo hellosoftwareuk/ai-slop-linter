@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
 
       - name: Install Rust 1.96
         uses: dtolnay/rust-toolchain@01ba1edad32c6f80dbcce879d3e0fa5a00b2a84e # 1.96.0
@@ -55,6 +57,10 @@ jobs:
 
       - name: Build optimized CLI
         run: cargo build --locked --release
+
+      - name: Reject slop introduced by the pull request
+        if: github.event_name == 'pull_request'
+        run: ./target/release/slop diff --base "${{ github.event.pull_request.base.sha }}" --format github
 
       - name: Run zero-slop gate
         shell: bash

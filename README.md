@@ -15,6 +15,47 @@ slop . --top 50
 slop src --fix
 ```
 
+## Changed-code gate
+
+Use `slop diff` to reject only maintainability debt introduced by the current
+Git changes:
+
+```sh
+slop diff
+slop diff src/features/billing
+slop diff --base origin/main
+slop diff --staged
+slop diff --base origin/main --format github
+```
+
+The command scans the base revision and the selected working tree, then compares
+stable finding identities. Existing findings remain quiet even when their line
+numbers move. A new positive-point finding or an increase in a file's syntax
+error count exits with code 2; no score threshold or configuration file is
+involved. Untracked files are included in working-tree mode. `--staged` reads
+the index exactly and ignores unstaged edits.
+
+Base revisions are read directly from Git's object database into a minimal
+analysis snapshot. Slop never checks out a commit, stashes files, or mutates
+the worktree. Use `--format json` for automation or `--format github` for native
+workflow annotations.
+
+This repository can also be used as a composite GitHub Action:
+
+```yaml
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: hellosoftwareuk/ai-slop-linter@main
+    with:
+      path: .
+      base: ${{ github.event.pull_request.base.sha }}
+```
+
+The action builds the pinned CLI and runs the same zero-config changed-code
+gate with GitHub annotations.
+
 ## Codex hooks
 
 Install the repository integration with one command:
@@ -28,7 +69,8 @@ or threshold to tune. Restart Codex after installation and approve the
 repository hooks when Codex asks. The `slop` executable must be available on
 `PATH` for the hook process.
 
-The integration is read-only and compares each turn with its starting state:
+The integration is read-only and uses the same finding-delta engine to compare
+each turn with its starting state:
 
 - `UserPromptSubmit` captures a fast repository baseline before Codex works.
 - `PostToolUse` scans only files named by successful edit/write operations and

@@ -18,8 +18,10 @@ runs the trainable layers.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import random
 import time
 from collections import defaultdict
@@ -140,6 +142,30 @@ def evaluate(model, rows, before_cache, after_cache) -> dict:
     return {key: (round(sum(v) / len(v), 4), len(v)) for key, v in sorted(groups.items())}
 
 
+def cached_states(model, tokenizer, texts, max_length, path) -> list[torch.Tensor]:
+    """frozen_cache, persisted so a restarted run skips the expensive pass."""
+    key = hashlib.sha1(
+        json.dumps([model.encoder.config._name_or_path, model.frozen_layers, max_length]).encode()
+        + "\0".join(texts).encode()
+    ).hexdigest()
+    if os.path.exists(path):
+        saved = torch.load(path, weights_only=False)
+        if saved["key"] == key:
+            return saved["states"]
+    states = frozen_cache(model, tokenizer, texts, max_length)
+    atomic_save({"key": key, "states": states}, path)
+    return states
+
+
+def atomic_save(value, path: str) -> None:
+    torch.save(value, path + ".tmp")
+    os.replace(path + ".tmp", path)
+
+
+def trainable_state(model) -> dict:
+    return {name: p.detach().clone() for name, p in model.named_parameters() if p.requires_grad}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data")
@@ -152,12 +178,13 @@ def main() -> None:
     parser.add_argument("--head-lr", type=float, default=1e-3)
     parser.add_argument("--limit", type=int, default=0, help="debug: cap training pairs")
     parser.add_argument("--out", default="model.pt")
+    parser.add_argument("--work", default="work", help="frozen-state cache and resume checkpoint")
+    parser.add_argument("--checkpoint-every", type=int, default=100)
     parser.add_argument("--seed", type=int, default=13)
     args = parser.parse_args()
 
-    random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.set_num_threads(torch.get_num_threads())
+    os.makedirs(args.work, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(args.encoder)
     model = QualityModel(args.encoder, args.trainable_layers)
@@ -172,30 +199,56 @@ def main() -> None:
         [{"params": encoder_params, "lr": args.lr}, {"params": head_params, "lr": args.head_lr}],
         weight_decay=0.01,
     )
-    steps = args.epochs * math.ceil(len(train) / args.batch_pairs)
+    batches_per_epoch = math.ceil(len(train) / args.batch_pairs)
+    steps = args.epochs * batches_per_epoch
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.06 * steps), steps)
 
     print(f"train pairs={len(train)} steps={steps}", flush=True)
     started = time.time()
     caches = {
-        (name, side): frozen_cache(model, tokenizer, [row[side] for row in rows], args.max_length)
+        (name, side): cached_states(
+            model, tokenizer, [row[side] for row in rows], args.max_length,
+            os.path.join(args.work, f"cache-{name}-{side}.pt"),
+        )
         for name, rows in (("train", train), ("val", val))
         for side in ("before", "after")
     }
-    print(f"cached frozen states in {time.time() - started:.0f}s", flush=True)
+    print(f"frozen states ready in {time.time() - started:.0f}s", flush=True)
     pairs = list(zip(caches["train", "before"], caches["train", "after"]))
-    best = -1.0
-    step = 0
+
+    resume_path = os.path.join(args.work, "resume.pt")
+    step, best, validated = 0, -1.0, 0
+    if os.path.exists(resume_path):
+        resume = torch.load(resume_path, weights_only=False)
+        if resume["args"] == vars(args):
+            model.load_state_dict(resume["trainable"], strict=False)
+            optimizer.load_state_dict(resume["optimizer"])
+            scheduler.load_state_dict(resume["scheduler"])
+            step, best, validated = resume["step"], resume["best"], resume["validated"]
+            print(f"resumed at step {step}", flush=True)
+
+    def checkpoint() -> None:
+        atomic_save(
+            {"trainable": trainable_state(model), "optimizer": optimizer.state_dict(),
+             "scheduler": scheduler.state_dict(), "step": step, "best": best, "validated": validated, "args": vars(args)},
+            resume_path,
+        )
+
+    resumed_at = step
     started = time.time()
-    for epoch in range(args.epochs):
-        random.shuffle(pairs)
+    for epoch in range(validated, args.epochs):
+        # A per-epoch seeded order lets a resumed run replay the same batches.
+        order = list(range(len(pairs)))
+        random.Random(args.seed * 1000 + epoch).shuffle(order)
         model.train()
         running = []
-        for start in range(0, len(pairs), args.batch_pairs):
-            batch_pairs = pairs[start : start + args.batch_pairs]
-            states = [before for before, _ in batch_pairs] + [after for _, after in batch_pairs]
+        for batch_index in range(batches_per_epoch):
+            if epoch * batches_per_epoch + batch_index < step:
+                continue
+            chunk = order[batch_index * args.batch_pairs : (batch_index + 1) * args.batch_pairs]
+            states = [pairs[i][0] for i in chunk] + [pairs[i][1] for i in chunk]
             scores = model.top(*collate(states))
-            before, after = scores[: len(batch_pairs)], scores[len(batch_pairs) :]
+            before, after = scores[: len(chunk)], scores[len(chunk) :]
             loss = -nn.functional.logsigmoid(after - before).mean()
             optimizer.zero_grad()
             loss.backward()
@@ -208,17 +261,18 @@ def main() -> None:
                 acc = sum(r[0] for r in running) / len(running)
                 avg = sum(r[1] for r in running) / len(running)
                 print(f"epoch {epoch} step {step}/{steps} loss {avg:.4f} train-acc {acc:.3f} "
-                      f"{(time.time() - started) / step:.2f}s/step", flush=True)
+                      f"{(time.time() - started) / (step - resumed_at):.2f}s/step", flush=True)
                 running = []
+            if step % args.checkpoint_every == 0:
+                checkpoint()
         metrics = evaluate(model, val, caches["val", "before"], caches["val", "after"])
         print(f"epoch {epoch} val {json.dumps(metrics)}", flush=True)
         if metrics["refactor/all"][0] > best:
             best = metrics["refactor/all"][0]
-            torch.save(
-                {"state": model.state_dict(), "args": vars(args), "val": metrics},
-                args.out,
-            )
+            atomic_save({"state": model.state_dict(), "args": vars(args), "val": metrics}, args.out)
             print(f"saved {args.out} (val refactor acc {best})", flush=True)
+        validated = epoch + 1
+        checkpoint()
 
 
 if __name__ == "__main__":

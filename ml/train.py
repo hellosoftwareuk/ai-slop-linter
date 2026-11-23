@@ -8,7 +8,11 @@ should score higher than the window before it,
 
 The score is therefore relative. Higher means "looks more like code people
 refactor towards"; lower means "looks more like code people refactor away
-from". Only the top layers are fine-tuned so training fits on a CPU.
+from".
+
+Only the top layers are fine-tuned, so training fits on a CPU: the frozen
+layers' output is computed once per sequence and cached, and each epoch only
+runs the trainable layers.
 """
 
 from __future__ import annotations
@@ -33,15 +37,32 @@ class QualityModel(nn.Module):
         for parameter in self.encoder.parameters():
             parameter.requires_grad = False
         layers = self.encoder.encoder.layer
-        for layer in layers[len(layers) - trainable_layers :]:
+        self.frozen_layers = len(layers) - trainable_layers
+        for layer in layers[self.frozen_layers :]:
             for parameter in layer.parameters():
                 parameter.requires_grad = True
 
     def forward(self, input_ids, attention_mask):
         hidden = self.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+        return self.pool(hidden, attention_mask)
+
+    def pool(self, hidden, attention_mask):
         mask = attention_mask.unsqueeze(-1).to(hidden.dtype)
         pooled = (hidden * mask).sum(1) / mask.sum(1).clamp(min=1.0)
         return self.head(pooled).squeeze(-1)
+
+    @torch.no_grad()
+    def frozen_states(self, input_ids, attention_mask):
+        """Output of the last frozen layer; constant during training."""
+        output = self.encoder(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
+        return output.hidden_states[self.frozen_layers]
+
+    def top(self, hidden, attention_mask):
+        """Score from cached frozen states by running only the trainable layers."""
+        mask, _ = self.encoder._create_attention_masks(attention_mask, None, hidden, None, None)
+        for layer in self.encoder.encoder.layer[self.frozen_layers :]:
+            hidden = layer(hidden, mask)
+        return self.pool(hidden, attention_mask)
 
 
 def load(path: str, kind: str | None = None) -> list[dict]:
@@ -71,9 +92,47 @@ def score_texts(model, tokenizer, texts, max_length, batch_size=32) -> list[floa
     return scores
 
 
-def evaluate(model, tokenizer, rows, max_length) -> dict:
-    before = score_texts(model, tokenizer, [row["before"] for row in rows], max_length)
-    after = score_texts(model, tokenizer, [row["after"] for row in rows], max_length)
+def frozen_cache(model, tokenizer, texts, max_length, batch_size=32) -> list[torch.Tensor]:
+    """Frozen-layer states per text, unpadded and stored as float16."""
+    model.eval()
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    cache: list[torch.Tensor | None] = [None] * len(texts)
+    for start in range(0, len(order), batch_size):
+        chunk = order[start : start + batch_size]
+        batch = tokenizer([texts[i] for i in chunk], truncation=True, max_length=max_length,
+                          padding=True, return_tensors="pt")
+        states = model.frozen_states(batch["input_ids"], batch["attention_mask"])
+        for row, i in enumerate(chunk):
+            length = int(batch["attention_mask"][row].sum())
+            cache[i] = states[row, :length].to(torch.float16).clone()
+    return cache
+
+
+def collate(states: list[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+    width = max(state.shape[0] for state in states)
+    hidden = torch.zeros(len(states), width, states[0].shape[1])
+    mask = torch.zeros(len(states), width, dtype=torch.long)
+    for row, state in enumerate(states):
+        hidden[row, : state.shape[0]] = state.float()
+        mask[row, : state.shape[0]] = 1
+    return hidden, mask
+
+
+def score_cached(model, states: list[torch.Tensor], batch_size=64) -> list[float]:
+    model.eval()
+    order = sorted(range(len(states)), key=lambda i: states[i].shape[0])
+    scores = [0.0] * len(states)
+    with torch.no_grad():
+        for start in range(0, len(order), batch_size):
+            chunk = order[start : start + batch_size]
+            for i, value in zip(chunk, model.top(*collate([states[i] for i in chunk])).tolist()):
+                scores[i] = value
+    return scores
+
+
+def evaluate(model, rows, before_cache, after_cache) -> dict:
+    before = score_cached(model, before_cache)
+    after = score_cached(model, after_cache)
     groups: dict[str, list[float]] = defaultdict(list)
     for row, b, a in zip(rows, before, after):
         groups[f"{row['kind']}/{row['lang']}"].append(1.0 if a > b else 0.0)
@@ -117,19 +176,26 @@ def main() -> None:
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.06 * steps), steps)
 
     print(f"train pairs={len(train)} steps={steps}", flush=True)
+    started = time.time()
+    caches = {
+        (name, side): frozen_cache(model, tokenizer, [row[side] for row in rows], args.max_length)
+        for name, rows in (("train", train), ("val", val))
+        for side in ("before", "after")
+    }
+    print(f"cached frozen states in {time.time() - started:.0f}s", flush=True)
+    pairs = list(zip(caches["train", "before"], caches["train", "after"]))
     best = -1.0
     step = 0
     started = time.time()
     for epoch in range(args.epochs):
-        random.shuffle(train)
+        random.shuffle(pairs)
         model.train()
         running = []
-        for start in range(0, len(train), args.batch_pairs):
-            batch_rows = train[start : start + args.batch_pairs]
-            texts = [row["before"] for row in batch_rows] + [row["after"] for row in batch_rows]
-            batch = tokenizer(texts, truncation=True, max_length=args.max_length, padding=True, return_tensors="pt")
-            scores = model(batch["input_ids"], batch["attention_mask"])
-            before, after = scores[: len(batch_rows)], scores[len(batch_rows) :]
+        for start in range(0, len(pairs), args.batch_pairs):
+            batch_pairs = pairs[start : start + args.batch_pairs]
+            states = [before for before, _ in batch_pairs] + [after for _, after in batch_pairs]
+            scores = model.top(*collate(states))
+            before, after = scores[: len(batch_pairs)], scores[len(batch_pairs) :]
             loss = -nn.functional.logsigmoid(after - before).mean()
             optimizer.zero_grad()
             loss.backward()
@@ -144,7 +210,7 @@ def main() -> None:
                 print(f"epoch {epoch} step {step}/{steps} loss {avg:.4f} train-acc {acc:.3f} "
                       f"{(time.time() - started) / step:.2f}s/step", flush=True)
                 running = []
-        metrics = evaluate(model, tokenizer, val, args.max_length)
+        metrics = evaluate(model, val, caches["val", "before"], caches["val", "after"])
         print(f"epoch {epoch} val {json.dumps(metrics)}", flush=True)
         if metrics["refactor/all"][0] > best:
             best = metrics["refactor/all"][0]

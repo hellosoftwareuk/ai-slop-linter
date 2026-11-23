@@ -1,2 +1,8 @@
 /target
 
+
+# ml/ prototype: mined data and checkpoints are large and reproducible.
+ml/data/
+ml/pairs*/
+ml/*.pt
+ml/*.log

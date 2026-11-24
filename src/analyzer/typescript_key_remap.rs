@@ -224,48 +224,44 @@ fn normalized_name(name: &str) -> String {
     canonical
 }
 
-/// Optimal-string-alignment distance (Levenshtein plus adjacent swaps), or
-/// `None` as soon as the distance is certain to exceed `limit`.
 fn bounded_edit_distance(left: &str, right: &str, limit: usize) -> Option<usize> {
     if left.len().abs_diff(right.len()) > limit {
         return None;
     }
     let left = left.as_bytes();
     let right = right.as_bytes();
-    // distances[i][j] is the distance between left[..i] and right[..j].
     let mut distances = vec![vec![0; right.len() + 1]; left.len() + 1];
-    for (i, row) in distances.iter_mut().enumerate() {
-        row[0] = i;
+    for (index, row) in distances.iter_mut().enumerate() {
+        row[0] = index;
     }
-    for (j, distance) in distances[0].iter_mut().enumerate() {
-        *distance = j;
+    for (index, distance) in distances[0].iter_mut().enumerate() {
+        *distance = index;
     }
-    for i in 1..=left.len() {
-        for j in 1..=right.len() {
-            let substitution_cost = usize::from(left[i - 1] != right[j - 1]);
-            let mut distance = (distances[i - 1][j - 1] + substitution_cost)
-                .min(distances[i][j - 1] + 1)
-                .min(distances[i - 1][j] + 1);
-            let swapped_pair =
-                i > 1 && j > 1 && left[i - 1] == right[j - 2] && left[i - 2] == right[j - 1];
-            if swapped_pair {
-                distance = distance.min(distances[i - 2][j - 2] + 1);
+    for left_index in 1..=left.len() {
+        let mut row_minimum = usize::MAX;
+        for right_index in 1..=right.len() {
+            let substitution = distances[left_index - 1][right_index - 1]
+                + usize::from(left[left_index - 1] != right[right_index - 1]);
+            let insertion = distances[left_index][right_index - 1] + 1;
+            let deletion = distances[left_index - 1][right_index] + 1;
+            let mut distance = substitution.min(insertion).min(deletion);
+            if left_index > 1
+                && right_index > 1
+                && left[left_index - 1] == right[right_index - 2]
+                && left[left_index - 2] == right[right_index - 1]
+            {
+                distance = distance.min(distances[left_index - 2][right_index - 2] + 1);
             }
-            distances[i][j] = distance;
+            distances[left_index][right_index] = distance;
+            row_minimum = row_minimum.min(distance);
         }
-        // Every alignment passes through this row, so once its cheapest cell
-        // is over the limit the final distance must be too.
-        let row_minimum = distances[i][1..]
-            .iter()
-            .copied()
-            .min()
-            .unwrap_or(usize::MAX);
         if row_minimum > limit {
             return None;
         }
     }
-    let distance = distances[left.len()][right.len()];
-    (distance <= limit).then_some(distance)
+    distances[left.len()][right.len()]
+        .le(&limit)
+        .then_some(distances[left.len()][right.len()])
 }
 
 pub(super) fn has_direct_eval(semantic: &Semantic<'_>) -> bool {

@@ -230,45 +230,53 @@ fn validate_candidate(source: &str, candidate: &ProposedFix) -> Result<()> {
 }
 
 fn write_all_or_rollback(staged: &[StagedFile]) -> Result<()> {
-    let mut written = Vec::with_capacity(staged.len());
     for (index, file) in staged.iter().enumerate() {
-        let write_result = atomic_write(&file.path, &file.replacement);
-        if write_result.is_ok() {
-            written.push(index);
+        let contents_written = atomic_write(&file.path, &file.replacement);
+        // A file whose contents were replaced is rolled back even when only
+        // its permissions failed.
+        let changed = if contents_written.is_ok() {
+            &staged[..=index]
+        } else {
+            &staged[..index]
+        };
+        let Err(error) = contents_written.and_then(|()| apply_permissions(file)) else {
+            continue;
+        };
+        let rollback_errors = roll_back(changed);
+        if rollback_errors.is_empty() {
+            return Err(error).with_context(|| {
+                format!(
+                    "could not write '{}'; earlier writes were rolled back",
+                    file.path.display()
+                )
+            });
         }
-        let result = write_result.and_then(|()| {
-            fs::set_permissions(&file.path, file.permissions.clone()).map_err(Into::into)
-        });
-        if let Err(error) = result {
-            let mut rollback_errors = Vec::new();
-            for written_index in written.into_iter().rev() {
-                let previous: &StagedFile = &staged[written_index];
-                if let Err(rollback_error) = atomic_write(&previous.path, &previous.original)
-                    .and_then(|()| {
-                        fs::set_permissions(&previous.path, previous.permissions.clone())
-                            .map_err(Into::into)
-                    })
-                {
-                    rollback_errors
-                        .push(format!("{}: {rollback_error:#}", previous.path.display()));
-                }
-            }
-            if rollback_errors.is_empty() {
-                return Err(error).with_context(|| {
-                    format!(
-                        "could not write '{}'; earlier writes were rolled back",
-                        file.path.display()
-                    )
-                });
-            }
-            bail!(
-                "could not write '{}': {error:#}; rollback also failed for {}",
-                file.path.display(),
-                rollback_errors.join(", ")
-            );
-        }
+        bail!(
+            "could not write '{}': {error:#}; rollback also failed for {}",
+            file.path.display(),
+            rollback_errors.join(", ")
+        );
     }
     Ok(())
+}
+
+/// Restores original contents newest first, returning one message per file
+/// that could not be restored.
+fn roll_back(changed: &[StagedFile]) -> Vec<String> {
+    changed
+        .iter()
+        .rev()
+        .filter_map(|file| {
+            atomic_write(&file.path, &file.original)
+                .and_then(|()| apply_permissions(file))
+                .err()
+                .map(|error| format!("{}: {error:#}", file.path.display()))
+        })
+        .collect()
+}
+
+fn apply_permissions(file: &StagedFile) -> Result<()> {
+    fs::set_permissions(&file.path, file.permissions.clone()).map_err(Into::into)
 }
 
 fn atomic_write(path: &Path, source: &str) -> Result<()> {

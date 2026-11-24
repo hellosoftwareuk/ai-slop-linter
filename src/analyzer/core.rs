@@ -285,50 +285,39 @@ impl MetricCollector {
     }
 
     pub fn record_else_if_chain(&mut self, conditions: usize) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.max_else_if_chain = frame.max_else_if_chain.max(conditions);
-        }
+        self.update_current(|frame| {
+            frame.max_else_if_chain = frame.max_else_if_chain.max(conditions)
+        });
     }
 
     pub fn record_exit_point(&mut self) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.exit_points += 1;
-        }
+        self.update_current(|frame| frame.exit_points += 1);
     }
 
     pub fn record_await_point(&mut self) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.await_points += 1;
-        }
+        self.update_current(|frame| frame.await_points += 1);
     }
 
     pub fn record_mutation(&mut self) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.mutation_points += 1;
-        }
+        self.update_current(|frame| frame.mutation_points += 1);
     }
 
     pub fn record_panic_path(&mut self) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.panic_paths += 1;
-        }
+        self.update_current(|frame| frame.panic_paths += 1);
     }
 
     pub fn record_chain(&mut self, steps: usize, callbacks: usize) {
-        if let Some(frame) = self.frames.last_mut() {
-            if steps > frame.max_chain_steps
-                || (steps == frame.max_chain_steps && callbacks > frame.max_chain_callbacks)
-            {
+        self.update_current(|frame| {
+            // Keep the longest chain, preferring more callbacks on a tie.
+            if (steps, callbacks) > (frame.max_chain_steps, frame.max_chain_callbacks) {
                 frame.max_chain_steps = steps;
                 frame.max_chain_callbacks = callbacks;
             }
-        }
+        });
     }
 
     pub fn record_input_mutation(&mut self) {
-        if let Some(frame) = self.frames.last_mut() {
-            frame.input_mutations += 1;
-        }
+        self.update_current(|frame| frame.input_mutations += 1);
     }
 
     pub fn record_assertion(&mut self) {
@@ -351,6 +340,13 @@ impl MetricCollector {
         }
         if conditional_expression {
             frame.conditional_depth = frame.conditional_depth.saturating_sub(1);
+        }
+    }
+
+    /// Applies `update` to the innermost function being measured, if any.
+    fn update_current(&mut self, update: impl FnOnce(&mut FunctionFrame)) {
+        if let Some(frame) = self.frames.last_mut() {
+            update(frame);
         }
     }
 }

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
+from codetext import without_comments
 from evaluate import load_model, windows
 from train import score_texts
 
@@ -40,8 +41,11 @@ def hotspots(model, tokenizer, max_length, root: Path, top: int) -> None:
     for path in sorted(root.rglob("*")):
         if path.suffix not in SOURCE_SUFFIXES or not path.is_file():
             continue
+        # Windows are cut from the real file so line numbers stay accurate;
+        # each is scored without comments, as the model was trained.
         chunks = windows(path.read_text())
-        scores = score_texts(model, tokenizer, [text for _, text in chunks], max_length)
+        scores = score_texts(model, tokenizer, [without_comments(text) for _, text in chunks],
+                             max_length)
         for score, (line, text) in zip(scores, chunks):
             candidates.append((score, str(path), line, line + len(text.splitlines()) - 1))
     candidates.sort()
@@ -79,18 +83,6 @@ def changed_clusters(old: list[str], new: list[str]):
         )
 
 
-COMMENT_LINE = ("//", "/*", "*")
-
-
-def without_comments(lines: list[str]) -> list[str]:
-    """Drop whole-line comments so only code structure is judged.
-
-    The model learned that refactor commits often add comments and rewards
-    even useless ones; scoring comment-free code removes that bias.
-    """
-    return [line for line in lines if not line.lstrip().startswith(COMMENT_LINE)]
-
-
 def git_lines(base: str, path: str) -> list[str] | None:
     result = subprocess.run(["git", "show", f"{base}:{path}"], capture_output=True, text=True)
     return result.stdout.splitlines() if result.returncode == 0 else None
@@ -114,7 +106,8 @@ def judge(model, tokenizer, max_length, base: str, head: str | None = None,
         else:
             new = path.read_text().splitlines() if path.exists() else []
         if strip_comments:
-            old, new = without_comments(old), without_comments(new)
+            old = without_comments("\n".join(old)).splitlines()
+            new = without_comments("\n".join(new)).splitlines()
         for old_window, new_window, line in changed_clusters(old, new):
             regions.append((relative, line, old_window, new_window))
     if not regions:

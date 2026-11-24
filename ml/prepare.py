@@ -7,6 +7,9 @@ contributes to more than one split. Control pairs (ordinary fix/feature
 commits) are kept only for repositories in the validation and test splits;
 they are an evaluation probe, never training data.
 
+Windows are stored with whole-line comments removed (see codetext.py), and
+pairs whose only change was to comments or whitespace are dropped.
+
 Each pair gets the slop debt points of its whole before/after file, which is
 the baseline the transformer has to beat.
 """
@@ -23,7 +26,11 @@ import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from codetext import without_comments
+
 SPLITS = (("train", 0.8), ("val", 0.1), ("test", 0.1))
+# A few prolific repositories would otherwise dominate the training signal.
+MAX_PAIRS_PER_REPOSITORY = 20
 
 
 def split_for(repo: str) -> str:
@@ -86,14 +93,24 @@ def main() -> None:
     args = parser.parse_args()
 
     seen: set[tuple[str, str]] = set()
+    per_repository: Counter = Counter()
     by_split: dict[str, list[dict]] = defaultdict(list)
     for path in sorted(glob.glob(os.path.join(args.pairs_dir, "*.jsonl"))):
         for line in open(path):
             row = json.loads(line)
+            # Windows are judged without comments; a change that only
+            # touched comments carries no structural signal.
+            row["before"] = without_comments(row["before"])
+            row["after"] = without_comments(row["after"])
+            if row["before"].split() == row["after"].split():
+                continue
             key = (row["before"], row["after"])
             if key in seen:
                 continue
             seen.add(key)
+            per_repository[row["kind"], row["repo"]] += 1
+            if per_repository[row["kind"], row["repo"]] > MAX_PAIRS_PER_REPOSITORY:
+                continue
             split = split_for(row["repo"])
             if row["kind"] == "control" and split == "train":
                 continue

@@ -55,9 +55,16 @@ class QualityModel(nn.Module):
 
     @torch.no_grad()
     def frozen_states(self, input_ids, attention_mask):
-        """Output of the last frozen layer; constant during training."""
-        output = self.encoder(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-        return output.hidden_states[self.frozen_layers]
+        """Output of the last frozen layer; constant during training.
+
+        Runs only the frozen layers, which is a third cheaper than a full
+        forward pass with all hidden states.
+        """
+        hidden = self.encoder.embeddings(input_ids=input_ids)
+        mask, _ = self.encoder._create_attention_masks(attention_mask, None, hidden, None, None)
+        for layer in self.encoder.encoder.layer[: self.frozen_layers]:
+            hidden = layer(hidden, mask)
+        return hidden
 
     def top(self, hidden, attention_mask):
         """Score from cached frozen states by running only the trainable layers."""
@@ -180,6 +187,7 @@ def main() -> None:
     parser.add_argument("--out", default="model.pt")
     parser.add_argument("--work", default="work", help="frozen-state cache and resume checkpoint")
     parser.add_argument("--checkpoint-every", type=int, default=100)
+    parser.add_argument("--val-controls", type=int, default=400)
     parser.add_argument("--seed", type=int, default=13)
     args = parser.parse_args()
 
@@ -189,7 +197,11 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.encoder)
     model = QualityModel(args.encoder, args.trainable_layers)
     train = load(f"{args.data}/train.jsonl", "refactor")
-    val = load(f"{args.data}/val.jsonl")
+    # Validation only picks the best epoch, so a sample of the control
+    # pairs is enough and keeps the frozen-state cache small.
+    val_rows = load(f"{args.data}/val.jsonl")
+    val = [row for row in val_rows if row["kind"] == "refactor"]
+    val += [row for row in val_rows if row["kind"] == "control"][: args.val_controls]
     if args.limit:
         train = train[: args.limit]
 

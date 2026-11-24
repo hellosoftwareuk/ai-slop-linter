@@ -23,6 +23,8 @@ from collections import defaultdict
 
 import numpy as np
 
+from codetext import without_comments
+
 KEYWORDS = re.compile(r"\b(if|else|for|while|match|switch|case|catch|return|loop)\b|&&|\|\||\?")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMENT = re.compile(r"^\s*(//|/\*|\*|#)")
@@ -162,7 +164,8 @@ def main() -> None:
         model, tokenizer, max_length = load_model(args.model)
         for path in args.score:
             chunks = windows(open(path).read())
-            scores = score_texts(model, tokenizer, [text for _, text in chunks], max_length)
+            scores = score_texts(model, tokenizer, [without_comments(text) for _, text in chunks],
+                                 max_length)
             worst = min(zip(scores, chunks))
             print(f"{path}: mean {np.mean(scores):+.3f}  worst {worst[0]:+.3f} at line {worst[1][0]}")
         return

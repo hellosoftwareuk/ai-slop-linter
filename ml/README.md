@@ -34,6 +34,7 @@ towards".
 | Prepare | `prepare.py` | Deduplicates, splits 80/10/10 **by repository** (no repository appears in more than one split), and scores both full files with `slop`'s file-local rules as a baseline. |
 | Train | `train.py` | Fine-tunes the top 4 layers of [`microsoft/unixcoder-base`](https://huggingface.co/microsoft/unixcoder-base) (125M parameters) plus a linear head. Frozen-layer activations are cached once, which makes CPU training about 3× faster. |
 | Evaluate | `evaluate.py` | Pairwise accuracy on held-out repositories with bootstrap confidence intervals, compared against three baselines. Also scores arbitrary files with sliding windows. |
+| Refactor | `refactor_loop.py`, `gate.sh` | Ranks hotspots in a tree and judges a working-tree change against a base revision, behind CI's checks. |
 
 ## Reproduce
 
@@ -126,14 +127,73 @@ over each file (stride 25) and reports the mean and the worst window:
 Scores are relative (no calibrated zero point), but the ordering matches
 human judgment on every fixture.
 
+## Refactoring loop
+
+The model cannot rewrite code; it can only judge it. `refactor_loop.py`
+turns that into a refactoring referee:
+
+```sh
+cd ml
+python refactor_loop.py hotspots --model model.pt ../src --top 20   # worst windows first
+# ...a person or an LLM rewrites a hotspot...
+MODEL=ml/model.pt ml/gate.sh          # from the repository root
+```
+
+`gate.sh` runs CI's checks (rustfmt, tests, clippy `-D warnings`, `slop diff`,
+and the zero-slop gate) and then the learned judge. The judge aligns each
+cluster of changed lines into a before/after window, the same shape the model
+was trained on, and keeps the change only if the net score rises and no
+region drops by more than 1.0.
+
+### Run on this repository
+
+The repository already passes `slop`'s zero-slop gate, so every hotspot below
+is invisible to the rule-based checks. The top six hotspots were triaged by
+hand: two were false positives (a textbook strongly-connected-components
+routine and a test module full of raw Git byte strings), and the rest were
+rewritten without changing behaviour.
+
+| Change | Judge (comments stripped) | Outcome |
+| --- | --- | --- |
+| Split Git blob response reading into focused steps (`diff/git.rs`) | −5.16 → −0.74 (**+4.43**) | kept |
+| Extract fix batch selection and edit application (`fixer.rs`) | −4.53 → +1.65 (**+6.17**) | kept |
+| Name the Codex tool-input path field check (`codex.rs`) | −5.32 → −1.18 (**+4.14**) | kept |
+| Extract rollback from the fix write loop (`fixer.rs`, tests added first) | −4.19 → +1.18 (**+5.37**) | kept |
+| Rename edit-distance indices and name the swap check (`typescript_key_remap.rs`) | −0.10 | reverted |
+| Route one-line frame updates through a closure helper (`analyzer/core.rs`) | −1.02 | reverted |
+
+Every kept change passes the full CI gate. The model consistently rewards
+extracting functions and separating responsibilities, is indifferent to
+renaming, and mildly dislikes replacing repetition with closures.
+
+### The judge over-rewards comments
+
+Two negative controls, both behaviour-preserving, checked whether the judge
+can say no:
+
+| Control | Judge, raw | Judge, comments stripped | clippy | `slop diff` |
+| --- | --- | --- | --- | --- |
+| Rename variables to `data`, `x`, `tmp`, `ARR` | −2.86 (reject) | −2.86 (reject) | pass | no new debt |
+| Narrating comments + `== true` + hand-written `?` | +0.28 (**accept**) | −0.35 (reject) | reject | no new debt |
+| Narrating comments only (`// Return the output`) | +1.15 (**accept**) | no code change | pass | no new debt |
+
+The model learned that refactor commits often add comments and rewards even
+useless ones. Two of the first five accepted refactors owed their whole gain
+to the doc comments they added, so they were reverted once the bias was found.
+`gate.sh` therefore judges with whole-line comments stripped (`--strip-comments`):
+comments are left to human review, and the model scores only code structure.
+
 ## Limits and next steps
 
 * **More data is the main lever.** This run used 6 of 77 TypeScript and 4 of
   30 Rust CommitPack shards. Mining takes about a minute per shard; 5–10× more
   pairs is cheap and directly targets the overfitting seen in epoch 2.
 * **Labels could be cleaner.** Filtering pairs whose diff is mostly
-  formatting, or having an LLM verify a sample of commit messages, would raise
-  the achievable ceiling.
+  formatting or comments, or having an LLM verify a sample of commit messages,
+  would raise the achievable ceiling and remove the comment bias at its source.
+* **The judge never checks behaviour.** It is only safe behind tests, clippy,
+  and `slop`. One kept refactor touched untested rollback code, so
+  characterisation tests were committed first.
 * **Windows, not repositories.** The model sees ≤384 tokens, so it judges local
   readability and design. Cross-module architecture (cycles, coupling,
   layering) stays with `slop`'s repository graph rules.

@@ -127,6 +127,34 @@ over each file (stride 25) and reports the mean and the worst window:
 Scores are relative (no calibrated zero point), but the ordering matches
 human judgment on every fixture.
 
+### Retrained model (v2): more data, comment-free
+
+The second run mined 30 more CommitPack shards, stripped whole-line comments
+from every window (`codetext.py`), dropped comment-only changes, and capped
+each repository at 20 pairs: 8,522 training pairs from 4,208 repositories.
+The test split grew to 1,088 refactor pairs and 1,965 control pairs.
+
+| Method | Refactor accuracy | TypeScript | Rust | JavaScript | Control |
+| --- | --- | --- | --- | --- | --- |
+| **Referee v2** | **61.4% [58.6, 64.2]** | 58.7% | 66.8% | 58.5% | 46.2% |
+| Surface features | 58.5% [55.6, 61.5] | 57.4% | 59.8% | 59.3% | 43.1% |
+| Shorter wins | 55.5% [52.7, 58.4] | 54.0% | 60.1% | 49.2% | 20.0% |
+| `slop` file-local debt | 52.3% [50.6, 54.2] | 51.6% | 53.9% | 51.2% | 41.3% |
+
+Paired bootstrap on identical pairs (`compare.py`):
+
+| Referee v2 vs | Lead | 95% interval |
+| --- | --- | --- |
+| `slop` rules | +9.1 points | [+5.7, +12.4] |
+| Shorter wins | +5.9 points | [+2.1, +9.8] |
+| Surface features | +3.0 points | [−0.6, +6.5] |
+| Referee v1 | +1.3 points | [−1.3, +4.0] |
+
+The referee conclusively beats the rule engine and the length heuristic. Its
+lead over surface statistics is likely but not conclusive, and 2.6× more data
+improved on v1 only slightly. Comment-free training removed the comment bias
+at no cost in accuracy.
+
 ## Refactoring loop
 
 The model cannot rewrite code; it can only judge it. `refactor_loop.py`
@@ -159,10 +187,13 @@ rewritten without changing behaviour.
 | Extract fix batch selection and edit application (`fixer.rs`) | −4.53 → +1.65 (**+6.17**) | kept |
 | Name the Codex tool-input path field check (`codex.rs`) | −5.32 → −1.18 (**+4.14**) | kept |
 | Extract rollback from the fix write loop (`fixer.rs`, tests added first) | −4.19 → +1.18 (**+5.37**) | kept |
-| Rename edit-distance indices and name the swap check (`typescript_key_remap.rs`) | −0.10 | reverted |
-| Route one-line frame updates through a closure helper (`analyzer/core.rs`) | −1.02 | reverted |
+| Rename edit-distance indices and name the swap check (`typescript_key_remap.rs`) | −0.10 | reverted, then restored (v2: +0.76) |
+| Route one-line frame updates through a closure helper (`analyzer/core.rs`) | −1.02 | reverted, then restored (v2: net +2.88) |
 
-Every kept change passes the full CI gate. The model consistently rewards
+Every kept change passes the full CI gate. The v2 referee, trained on
+comment-free code, re-judged the two reverted changes on structure alone and
+accepted both; it scores the four kept changes +7.20, +6.36, +4.10 and +3.36,
+and rejects the negative controls (−3.10 and −0.94). The model consistently rewards
 extracting functions and separating responsibilities, is indifferent to
 renaming, and mildly dislikes replacing repetition with closures.
 

@@ -28,6 +28,10 @@ values = {
     "CTRL_NAMES": signed(results["controls"]["names"]),
     "CTRL_VERBOSE": signed(results["controls"]["verbose"]),
     "RUN_DATE": results["run_date"],
+    "KEPT": str(len(diffs)),
+    "CTRL_NAMES_RAW": str(results["controls"]["names"]),
+    "CTRL_VERBOSE_RAW": str(results["controls"]["verbose"]),
+    "PAIRED_JSON": json.dumps(results["paired"]),
     # "</" cannot appear inside an inline script.
     "DIFFS_JSON": json.dumps(diffs).replace("</", "<\\/"),
     "BENCH_JSON": json.dumps(bench).replace("</", "<\\/"),

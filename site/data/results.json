@@ -1,20 +1,94 @@
 {
-  "model": "v1",
-  "run_date": "24 November 2026",
-  "train_pairs": 3226,
-  "train_repos": 2226,
-  "test_pairs": 427,
-  "control_pairs": 660,
-  "controls": {"names": -2.86, "verbose": -0.35},
-  "languages": ["TypeScript", "Rust", "JavaScript"],
-  "methods": [
-    {"name": "Slop referee", "highlight": true, "acc": 0.625, "low": 0.578, "high": 0.672, "control": 0.477,
-     "byLang": {"TypeScript": 0.639, "Rust": 0.577, "JavaScript": 0.648}},
-    {"name": "Surface statistics", "acc": 0.605, "low": 0.563, "high": 0.652, "control": 0.467,
-     "byLang": {"TypeScript": 0.571, "Rust": 0.662, "JavaScript": 0.608}},
-    {"name": "Rule engine (slop)", "acc": 0.502, "low": 0.474, "high": 0.530, "control": 0.412,
-     "byLang": {"TypeScript": 0.490, "Rust": 0.514, "JavaScript": 0.512}},
-    {"name": "Shorter wins", "acc": 0.505, "low": 0.459, "high": 0.549, "control": 0.195,
-     "byLang": {"TypeScript": 0.529, "Rust": 0.505, "JavaScript": 0.468}}
-  ]
+ "model": "v2",
+ "run_date": "24 November 2026",
+ "train_pairs": 8522,
+ "train_repos": 4208,
+ "test_pairs": 1088,
+ "control_pairs": 1965,
+ "controls": {
+  "names": -3.1,
+  "verbose": -0.94
+ },
+ "languages": [
+  "TypeScript",
+  "Rust",
+  "JavaScript"
+ ],
+ "methods": [
+  {
+   "name": "Slop referee",
+   "highlight": true,
+   "acc": 0.614,
+   "low": 0.586,
+   "high": 0.642,
+   "control": 0.462,
+   "byLang": {
+    "TypeScript": 0.587,
+    "Rust": 0.668,
+    "JavaScript": 0.585
+   }
+  },
+  {
+   "name": "Surface statistics",
+   "acc": 0.585,
+   "low": 0.556,
+   "high": 0.615,
+   "control": 0.431,
+   "byLang": {
+    "TypeScript": 0.574,
+    "Rust": 0.598,
+    "JavaScript": 0.593
+   }
+  },
+  {
+   "name": "Shorter wins",
+   "acc": 0.555,
+   "low": 0.527,
+   "high": 0.584,
+   "control": 0.2,
+   "byLang": {
+    "TypeScript": 0.54,
+    "Rust": 0.601,
+    "JavaScript": 0.492
+   }
+  },
+  {
+   "name": "Rule engine (slop)",
+   "acc": 0.523,
+   "low": 0.506,
+   "high": 0.542,
+   "control": 0.413,
+   "byLang": {
+    "TypeScript": 0.516,
+    "Rust": 0.539,
+    "JavaScript": 0.512
+   }
+  }
+ ],
+ "paired": [
+  {
+   "versus": "Rule engine (slop)",
+   "diff": 9.1,
+   "low": 5.7,
+   "high": 12.4
+  },
+  {
+   "versus": "Shorter wins",
+   "diff": 5.9,
+   "low": 2.1,
+   "high": 9.8
+  },
+  {
+   "versus": "Surface statistics",
+   "diff": 3.0,
+   "low": -0.6,
+   "high": 6.5
+  },
+  {
+   "versus": "First referee model",
+   "diff": 1.3,
+   "low": -1.3,
+   "high": 4.0
+  }
+ ]
 }

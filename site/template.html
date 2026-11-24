@@ -217,10 +217,10 @@ footer { padding-block: 2rem 3rem; color: var(--muted); font-size: var(--step--1
     <div class="hero-copy">
       <span class="eyebrow">A learned code-quality referee for slop</span>
       <h1>Your linter passes. <em>Your code still reads badly.</em></h1>
-      <p class="lede prose">Slop's referee is a transformer trained on {{TRAIN_PAIRS}} real refactor commits from {{TRAIN_REPOS}} open-source repositories. It finds the code reviewers would flag, then lets a rewrite through only when the tests pass and the code reads measurably better.</p>
+      <p class="lede prose">Slop's referee is a transformer trained on {{TRAIN_PAIRS}} real before-and-after refactors from {{TRAIN_REPOS}} open-source repositories. It finds the code reviewers would flag, then lets a rewrite through only when the tests pass and the code reads measurably better.</p>
       <div class="stats">
         <div class="stat"><b class="num">0</b><span>rule-based findings in our own codebase before we started</span></div>
-        <div class="stat"><b class="num">4</b><span>refactors the referee found and accepted, every one CI-green</span></div>
+        <div class="stat"><b class="num">{{KEPT}}</b><span>refactors the referee found and accepted, every one CI-green</span></div>
         <div class="stat"><b class="num">{{HEADLINE_ACC}}</b><span>accuracy picking the better version, on repositories it never saw</span></div>
       </div>
     </div>
@@ -254,7 +254,7 @@ footer { padding-block: 2rem 3rem; color: var(--muted); font-size: var(--step--1
     <div class="section-head">
       <span class="eyebrow">Run on this repository</span>
       <h2>What it caught in a codebase that already passed every rule</h2>
-      <p class="lede prose">Slop's own repository had zero rule-based findings. The referee ranked every 50-line window, a person triaged the worst six, and each rewrite had to pass CI and score higher with comments stripped. Four made it. These are the real diffs.</p>
+      <p class="lede prose">Slop's own repository had zero rule-based findings. The referee ranked every 50-line window, a person triaged the worst, and each rewrite had to pass CI and raise the referee's score with comments stripped. All {{KEPT}} below made it. These are the real diffs.</p>
     </div>
     <div class="explorer">
       <div class="tabs" role="tablist" aria-label="Accepted refactors" id="tabs"></div>
@@ -263,7 +263,7 @@ footer { padding-block: 2rem 3rem; color: var(--muted); font-size: var(--step--1
     <div class="chart-card chart" style="margin-top:1.5rem" id="dumbbell-card">
       <div>
         <div class="chart-title">Referee score before and after each change</div>
-        <div class="chart-sub">Comments stripped. Higher reads more like code people refactor towards. Rejected changes went back out.</div>
+        <div class="chart-sub">Comments stripped. Higher reads more like code people refactor towards. The last rows are deliberately worse rewrites, which it rejected.</div>
       </div>
       <div id="dumbbell"></div>
     </div>
@@ -306,7 +306,7 @@ if output.status.success() {
         <p>Clippy: passed. Rule engine: no new debt.</p>
       </article>
     </div>
-    <p class="callout prose">Our first model scored that last example <b>+1.15</b>: refactor commits often add comments, so it learned to reward them. We caught it with these controls, reverted two of our own changes whose gains came only from doc comments, and retrained on comment-free code. The referee now judges structure. Comments are for people to review.</p>
+    <p class="callout prose">Our first model scored that last example <b>+1.15</b>: refactor commits often add comments, so it learned to reward them. We caught it with these controls and reverted two of our own changes whose gains came only from doc comments. Then we retrained on {{TRAIN_PAIRS}} comment-free refactors. The new referee judged those two changes on structure alone, accepted both, and still rejects every control. Comments are for people to review.</p>
   </div>
 </section>
 
@@ -329,6 +329,9 @@ if output.status.success() {
         <div class="chart-title">By language</div>
         <div class="table-wrap"><table class="data" id="by-lang"></table></div>
         <p class="footnote">Control column: how often a method prefers the newer version of ordinary bug-fix and feature commits ({{CONTROL_PAIRS}} pairs). A quality signal has no reason to; near 50% means it is not just detecting newer or longer code.</p>
+        <div class="chart-title" style="margin-top:0.5rem">Head to head, same pairs</div>
+        <div class="table-wrap"><table class="data" id="paired"></table></div>
+        <p class="footnote">Paired bootstrap of the accuracy difference on identical pairs. An interval that stays above zero is a conclusive win. Against simple style statistics the lead is likely but not yet conclusive.</p>
       </div>
     </div>
     <p class="footnote" style="margin-top:1.25rem">Rule engine: slop's file-local debt points on the whole file. Surface statistics: logistic regression on 14 style measures (indentation, line length, nesting, identifier length, branch density). Repositories are split by hash, so no repository contributes to both training and test. Commit messages are noisy labels, so no method should approach 100% here.</p>
@@ -371,7 +374,7 @@ if output.status.success() {
 == tests          ok. 108 passed
 == clippy         ok
 == slop           No new slop introduced.
-== learned judge  net +6.17 -> keep</div>
+== learned judge  net +7.20 -> keep</div>
   </div>
 </section>
 
@@ -380,12 +383,13 @@ if output.status.success() {
 <script>
 const DIFFS = {{DIFFS_JSON}};
 const BENCH = {{BENCH_JSON}};
+const PAIRED = {{PAIRED_JSON}};
 const REJECTED = [
-  { title: "Rename edit-distance indices", path: "src/analyzer/typescript_key_remap.rs", before: null, after: null, delta: -0.10 },
-  { title: "Closure helper for frame updates", path: "src/analyzer/core.rs", before: null, after: null, delta: -1.02 },
+  { title: "Control: vague names", delta: {{CTRL_NAMES_RAW}} },
+  { title: "Control: narrated boilerplate", delta: {{CTRL_VERBOSE_RAW}} },
 ];
 
-const SCALE = { min: -8, max: 8 };
+const SCALE = { min: -16, max: 8 };
 const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const fmt = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
 const pct = v => (v * 100).toFixed(1) + "%";
@@ -394,7 +398,7 @@ const pct = v => (v * 100).toFixed(1) + "%";
 function track(el, before, after, animate) {
   const W = 420, H = 58, pad = 14;
   const x = v => pad + (v - SCALE.min) / (SCALE.max - SCALE.min) * (W - 2 * pad);
-  const ticks = [-8, -4, 0, 4, 8];
+  const ticks = [-16, -8, 0, 8];
   const lo = Math.min(before, after), hi = Math.max(before, after);
   el.innerHTML = `
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Referee score moved from ${fmt(before)} to ${fmt(after)}">
@@ -511,7 +515,7 @@ function renderDumbbell() {
   ];
   const W = 760, rowH = 34, top = 10, left = 250, right = 70, H = top + rows.length * rowH + 30;
   const x = v => left + (v - SCALE.min) / (SCALE.max - SCALE.min) * (W - left - right);
-  const ticks = [-8, -4, 0, 4, 8];
+  const ticks = [-16, -12, -8, -4, 0, 4, 8];
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Referee score before and after each change">`;
   ticks.forEach(t => { svg += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${H - 24}"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle">${t > 0 ? "+" + t : t}</text>`; });
   rows.forEach((r, i) => {
@@ -523,7 +527,7 @@ function renderDumbbell() {
         <circle cx="${x(r.after)}" cy="${y}" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
         <text x="${x(Math.max(r.before, r.after)) + 12}" y="${y + 4}">${fmt(r.after - r.before)}</text>`;
     } else {
-      svg += `<text x="${x(0) + 8}" y="${y + 4}" fill="var(--reject)">rejected, Δ ${fmt(r.delta)}</text>`;
+      svg += `<text x="${x(0) + 8}" y="${y + 4}" style="fill:var(--reject)">rejected, Δ ${fmt(r.delta)}</text>`;
     }
     svg += `<rect class="hit" x="0" y="${y - rowH / 2}" width="${W}" height="${rowH}" data-i="${i}"/>`;
   });
@@ -535,7 +539,7 @@ function renderDumbbell() {
     const r = rows[+rect.dataset.i];
     rect.addEventListener("mousemove", e => tip.show(r.kept
       ? `<b>${esc(r.label)}</b><br>before ${fmt(r.before)} → after ${fmt(r.after)}<br>Δ ${fmt(r.after - r.before)}, kept`
-      : `<b>${esc(r.label)}</b><br>Δ ${fmt(r.delta)} with comments stripped<br>reverted`, e));
+      : `<b>${esc(r.label)}</b><br>Δ ${fmt(r.delta)} with comments stripped<br>rejected by the referee`, e));
     rect.addEventListener("mouseleave", () => tip.hide());
   });
 }
@@ -570,6 +574,13 @@ function renderDots() {
   });
 }
 
+function renderPaired() {
+  const sign = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
+  const head = `<thead><tr><th>Referee vs</th><th>Lead</th><th>95% interval</th><th>Result</th></tr></thead>`;
+  const body = PAIRED.map(p => `<tr><td>${esc(p.versus)}</td><td>${sign(p.diff)} pts</td><td>${sign(p.low)} to ${sign(p.high)}</td><td>${p.low > 0 ? "wins" : "not conclusive"}</td></tr>`).join("");
+  document.getElementById("paired").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
 function renderLangTable() {
   const langs = BENCH.languages;
   const head = `<thead><tr><th>Method</th>${langs.map(l => `<th>${l}</th>`).join("")}<th>Control</th></tr></thead>`;
@@ -583,4 +594,5 @@ track(document.getElementById("hero-track"), DIFFS[0].before, DIFFS[0].after, fa
 renderDumbbell();
 renderDots();
 renderLangTable();
+renderPaired();
 </script>

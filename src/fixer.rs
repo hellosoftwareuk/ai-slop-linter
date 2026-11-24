@@ -131,36 +131,49 @@ fn apply_candidates(source: &str, mut candidates: Vec<ProposedFix>) -> Result<(S
     for candidate in &candidates {
         validate_candidate(source, candidate)?;
     }
+    let selected = select_disjoint_batches(candidates);
+    let applied = selected.len();
+    Ok((apply_edits(source, selected), applied))
+}
 
-    let mut candidates: Vec<Option<ProposedFix>> = candidates.into_iter().map(Some).collect();
-    let mut selected: Vec<ProposedFix> = Vec::with_capacity(candidates.len());
-    for index in 0..candidates.len() {
-        let Some(candidate) = candidates[index].take() else {
+/// Picks fixes in priority order. A grouped fix travels with every later fix
+/// of the same rule and group, and the whole batch is dropped if any of its
+/// edits overlap each other or an already selected edit.
+fn select_disjoint_batches(candidates: Vec<ProposedFix>) -> Vec<ProposedFix> {
+    let mut pending: Vec<Option<ProposedFix>> = candidates.into_iter().map(Some).collect();
+    let mut selected = Vec::with_capacity(pending.len());
+    for index in 0..pending.len() {
+        let Some(batch) = take_batch(&mut pending, index) else {
             continue;
         };
-        let mut batch = vec![candidate];
-        if let Some(group) = batch[0].group {
-            for pending in candidates.iter_mut().skip(index + 1) {
-                if pending
-                    .as_ref()
-                    .is_some_and(|item| item.rule == batch[0].rule && item.group == Some(group))
-                {
-                    batch.push(pending.take().expect("grouped candidate exists"));
-                }
-            }
-        }
         if batch_is_disjoint(&batch, &selected) {
             selected.extend(batch);
         }
     }
+    selected
+}
 
-    selected.sort_unstable_by_key(|candidate| candidate.start);
-    let applied = selected.len();
+/// Removes the fix at `index` and, when it is grouped, every later fix in its group.
+fn take_batch(pending: &mut [Option<ProposedFix>], index: usize) -> Option<Vec<ProposedFix>> {
+    let first = pending[index].take()?;
+    let Some(group) = first.group else {
+        return Some(vec![first]);
+    };
+    let rule = first.rule;
+    let members = pending[index + 1..]
+        .iter_mut()
+        .filter_map(|slot| slot.take_if(|fix| fix.rule == rule && fix.group == Some(group)));
+    Some(std::iter::once(first).chain(members).collect())
+}
+
+fn apply_edits(source: &str, mut edits: Vec<ProposedFix>) -> String {
+    edits.sort_unstable_by_key(|edit| edit.start);
     let mut output = source.to_owned();
-    for candidate in selected.into_iter().rev() {
-        output.replace_range(candidate.start..candidate.end, &candidate.replacement);
+    // Back to front, so each edit's byte offsets are still valid.
+    for edit in edits.into_iter().rev() {
+        output.replace_range(edit.start..edit.end, &edit.replacement);
     }
-    Ok((output, applied))
+    output
 }
 
 fn batch_is_disjoint(batch: &[ProposedFix], selected: &[ProposedFix]) -> bool {

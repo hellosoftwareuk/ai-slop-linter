@@ -24,5 +24,5 @@ cargo build --locked --release --quiet
 ./target/release/slop diff --base "$base"
 ./target/release/slop . --fail-above 0 >/dev/null
 step "learned judge"
-(cd ml && python refactor_loop.py judge --model "$model" --base "$base") \
+(cd ml && python refactor_loop.py judge --model "$model" --base "$base" --strip-comments) \
   2>&1 | grep -vE "Warning|Loading weights"

@@ -79,23 +79,42 @@ def changed_clusters(old: list[str], new: list[str]):
         )
 
 
+COMMENT_LINE = ("//", "/*", "*")
+
+
+def without_comments(lines: list[str]) -> list[str]:
+    """Drop whole-line comments so only code structure is judged.
+
+    The model learned that refactor commits often add comments and rewards
+    even useless ones; scoring comment-free code removes that bias.
+    """
+    return [line for line in lines if not line.lstrip().startswith(COMMENT_LINE)]
+
+
 def git_lines(base: str, path: str) -> list[str] | None:
     result = subprocess.run(["git", "show", f"{base}:{path}"], capture_output=True, text=True)
     return result.stdout.splitlines() if result.returncode == 0 else None
 
 
-def judge(model, tokenizer, max_length, base: str) -> bool:
+def judge(model, tokenizer, max_length, base: str, head: str | None = None,
+          strip_comments: bool = False) -> bool:
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
                          check=True).stdout.strip()
-    changed = subprocess.run(["git", "diff", "--name-only", base, "--", "."], capture_output=True,
-                             text=True, check=True, cwd=top).stdout.split()
+    revisions = [base] + ([head] if head else [])
+    changed = subprocess.run(["git", "diff", "--name-only", *revisions, "--", "."],
+                             capture_output=True, text=True, check=True, cwd=top).stdout.split()
     regions = []
     for relative in changed:
         path = Path(top, relative)
         if path.suffix not in SOURCE_SUFFIXES:
             continue
         old = git_lines(base, relative) or []
-        new = path.read_text().splitlines() if path.exists() else []
+        if head:
+            new = git_lines(head, relative) or []
+        else:
+            new = path.read_text().splitlines() if path.exists() else []
+        if strip_comments:
+            old, new = without_comments(old), without_comments(new)
         for old_window, new_window, line in changed_clusters(old, new):
             regions.append((relative, line, old_window, new_window))
     if not regions:
@@ -126,13 +145,16 @@ def main() -> None:
     parser.add_argument("--model", required=True)
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--base", default="HEAD")
+    parser.add_argument("--head", help="judge this revision instead of the working tree")
+    parser.add_argument("--strip-comments", action="store_true",
+                        help="ignore whole-line comments (the model over-rewards them)")
     args = parser.parse_args()
 
     model, tokenizer, max_length = load_model(args.model)
     if args.command == "hotspots":
         hotspots(model, tokenizer, max_length, Path(args.path), args.top)
     else:
-        raise SystemExit(0 if judge(model, tokenizer, max_length, args.base) else 1)
+        raise SystemExit(0 if judge(model, tokenizer, max_length, args.base, args.head, args.strip_comments) else 1)
 
 
 if __name__ == "__main__":

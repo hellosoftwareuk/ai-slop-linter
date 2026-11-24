@@ -385,4 +385,54 @@ mod tests {
         assert_eq!(output, "kept use");
         assert_eq!(applied, 1);
     }
+
+    fn staged(path: &Path, original: &str, replacement: &str) -> StagedFile {
+        StagedFile {
+            path: path.to_owned(),
+            original: original.to_owned(),
+            replacement: replacement.to_owned(),
+            permissions: fs::metadata(path.parent().expect("test paths have a parent"))
+                .expect("parent exists")
+                .permissions(),
+            applied: 1,
+        }
+    }
+
+    #[test]
+    fn failed_write_rolls_back_earlier_files() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let first = directory.path().join("first.ts");
+        fs::write(&first, "original").expect("seed first file");
+        // A regular file cannot be a parent directory, so this write fails
+        // even when the tests run as root.
+        let blocker = directory.path().join("blocker");
+        fs::write(&blocker, "").expect("seed blocker");
+        let mut second = staged(&first, "", "new");
+        second.path = blocker.join("second.ts");
+        let files = [staged(&first, "original", "replaced"), second];
+
+        let error = write_all_or_rollback(&files).expect_err("second write must fail");
+
+        assert!(format!("{error:#}").contains("earlier writes were rolled back"));
+        assert_eq!(
+            fs::read_to_string(&first).expect("first exists"),
+            "original"
+        );
+    }
+
+    #[test]
+    fn successful_writes_replace_every_file() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let paths = ["a.ts", "b.ts"].map(|name| directory.path().join(name));
+        for path in &paths {
+            fs::write(path, "before").expect("seed file");
+        }
+        let files = paths.each_ref().map(|path| staged(path, "before", "after"));
+
+        write_all_or_rollback(&files).expect("writes succeed");
+
+        for path in &paths {
+            assert_eq!(fs::read_to_string(path).expect("file exists"), "after");
+        }
+    }
 }

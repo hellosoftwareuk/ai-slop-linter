@@ -1,0 +1,20 @@
+{
+  "model": "v1",
+  "run_date": "24 November 2026",
+  "train_pairs": 3226,
+  "train_repos": 2226,
+  "test_pairs": 427,
+  "control_pairs": 660,
+  "controls": {"names": -2.86, "verbose": -0.35},
+  "languages": ["TypeScript", "Rust", "JavaScript"],
+  "methods": [
+    {"name": "Slop referee", "highlight": true, "acc": 0.625, "low": 0.578, "high": 0.672, "control": 0.477,
+     "byLang": {"TypeScript": 0.639, "Rust": 0.577, "JavaScript": 0.648}},
+    {"name": "Surface statistics", "acc": 0.605, "low": 0.563, "high": 0.652, "control": 0.467,
+     "byLang": {"TypeScript": 0.571, "Rust": 0.662, "JavaScript": 0.608}},
+    {"name": "Rule engine (slop)", "acc": 0.502, "low": 0.474, "high": 0.530, "control": 0.412,
+     "byLang": {"TypeScript": 0.490, "Rust": 0.514, "JavaScript": 0.512}},
+    {"name": "Shorter wins", "acc": 0.505, "low": 0.459, "high": 0.549, "control": 0.195,
+     "byLang": {"TypeScript": 0.529, "Rust": 0.505, "JavaScript": 0.468}}
+  ]
+}

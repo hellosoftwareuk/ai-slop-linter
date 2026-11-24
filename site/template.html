@@ -1,0 +1,586 @@
+<title>Slop Referee</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a calibrated instrument. One narrow reading column, wide panels for
+   diffs and charts, every score drawn on the same -10..+10 referee scale. */
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --sunken: #eef1f5;
+  --ink: #131a2a;
+  --muted: #586174;
+  --line: #dde1e8;
+  --accent: #2a78d6;
+  --accent-ink: #1c5cab;
+  --accent-soft: #9ec5f4;
+  --context: #8a8f98;
+  --add-bg: #e3f4e8; --add-fg: #116329; --add-mark: #1a7f37;
+  --del-bg: #fbe9e9; --del-fg: #8e1b1b; --del-mark: #c62828;
+  --keep: #1a7f37; --reject: #b42318;
+  --code-kw: #6639ba; --code-str: #0a5c8a; --code-num: #9a4a00;
+  --display: "Bricolage Grotesque", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem; --step-0: 1rem; --step-1: 1.25rem; --step-2: 1.75rem;
+  --step-3: clamp(2.1rem, 4.5vw, 3.4rem); --step-4: clamp(2.6rem, 6.4vw, 4.9rem);
+  --radius: 10px;
+  --gutter: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141f; --surface: #161c2a; --sunken: #0c1019; --ink: #e9ecf2; --muted: #9aa3b5;
+    --line: #283044; --accent: #3987e5; --accent-ink: #86b6ef; --accent-soft: #1c5cab;
+    --context: #666c76;
+    --add-bg: #12301f; --add-fg: #8fe0a8; --add-mark: #3fb950;
+    --del-bg: #3a1618; --del-fg: #ffb3ad; --del-mark: #f85149;
+    --keep: #3fb950; --reject: #f97066;
+    --code-kw: #c4a7ff; --code-str: #7cc4f8; --code-num: #f0b46a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141f; --surface: #161c2a; --sunken: #0c1019; --ink: #e9ecf2; --muted: #9aa3b5;
+  --line: #283044; --accent: #3987e5; --accent-ink: #86b6ef; --accent-soft: #1c5cab;
+  --context: #666c76;
+  --add-bg: #12301f; --add-fg: #8fe0a8; --add-mark: #3fb950;
+  --del-bg: #3a1618; --del-fg: #ffb3ad; --del-mark: #f85149;
+  --keep: #3fb950; --reject: #f97066;
+  --code-kw: #c4a7ff; --code-str: #7cc4f8; --code-num: #f0b46a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: var(--step-0); line-height: 1.6; }
+.wrap { max-width: 1120px; margin-inline: auto; padding-left: var(--gutter); padding-right: var(--gutter-r); }
+.prose { max-width: 66ch; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.05; text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
+h1 { font-size: var(--step-4); font-weight: 800; }
+h2 { font-size: var(--step-3); font-weight: 700; }
+h3 { font-size: var(--step-1); font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+a { color: var(--accent-ink); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); }
+.eyebrow { font-family: var(--mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+section { padding-block: clamp(3.5rem, 8vw, 6.5rem); border-top: 1px solid var(--line); }
+.section-head { display: grid; gap: 1rem; margin-bottom: 2.5rem; }
+.lede { font-size: var(--step-1); color: var(--muted); line-height: 1.5; }
+
+/* Top bar */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1.1rem; }
+.brand { font-family: var(--mono); font-weight: 500; display: flex; align-items: center; gap: 0.6rem; }
+.brand-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--ink); display: grid; place-items: center; }
+.brand-mark span { width: 10px; height: 2px; background: var(--bg); box-shadow: 0 -4px 0 var(--bg), 0 4px 0 var(--accent); }
+.topnav { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: var(--step--1); }
+.topnav a { color: var(--muted); text-decoration: none; }
+.topnav a:hover { color: var(--ink); }
+
+/* Hero */
+.hero { padding-block: clamp(2.5rem, 6vw, 5rem) clamp(3rem, 7vw, 5.5rem); border-top: 0; }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: clamp(2rem, 5vw, 4rem); align-items: center; }
+.hero-copy { display: grid; gap: 1.5rem; min-width: 0; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding-top: 0.5rem; }
+.stat { border-top: 2px solid var(--ink); padding-top: 0.6rem; display: grid; gap: 0.15rem; }
+.stat b { font-family: var(--display); font-size: var(--step-2); font-weight: 700; line-height: 1; }
+.stat span { font-size: var(--step--1); color: var(--muted); line-height: 1.35; }
+
+/* Verdict card (hero instrument) */
+.verdict { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem; display: grid; gap: 1rem; min-width: 0; box-shadow: 0 1px 0 var(--line), 0 18px 40px -24px rgb(19 26 42 / 0.35); }
+.verdict-head { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; flex-wrap: wrap; }
+.verdict-file { font-family: var(--mono); font-size: var(--step--1); color: var(--muted); }
+.track { display: grid; gap: 0.35rem; }
+.track svg { width: 100%; height: auto; display: block; overflow: visible; }
+.track-label { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.gates { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.gate { font-family: var(--mono); font-size: 12px; padding: 0.2rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); display: inline-flex; align-items: center; gap: 0.35rem; }
+.gate::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--keep); }
+.gate.no::before { background: var(--reject); }
+.badge { font-family: var(--mono); font-size: 12px; font-weight: 500; padding: 0.15rem 0.5rem; border-radius: 4px; }
+.badge.keep { color: var(--keep); background: color-mix(in srgb, var(--keep) 14%, transparent); }
+.badge.reject { color: var(--reject); background: color-mix(in srgb, var(--reject) 14%, transparent); }
+.mini-diff { font-family: var(--mono); font-size: 12px; line-height: 1.55; background: var(--sunken); border-radius: 6px; padding: 0.6rem 0; overflow-x: auto; }
+.mini-diff div { padding-inline: 0.75rem; white-space: pre; }
+
+/* Diff explorer */
+.explorer { display: grid; grid-template-columns: minmax(0, 290px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.tabs { display: grid; gap: 0.5rem; }
+.tab { all: unset; cursor: pointer; display: grid; gap: 0.3rem; padding: 0.85rem 1rem; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.tab:hover { border-color: var(--context); }
+.tab[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.tab-title { font-weight: 600; line-height: 1.3; }
+.tab-meta { display: flex; justify-content: space-between; gap: 0.5rem; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.tab-meta .up { color: var(--keep); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+.panel-head { padding: 1.1rem 1.25rem; display: grid; gap: 0.85rem; border-bottom: 1px solid var(--line); }
+.panel-why { color: var(--muted); max-width: 70ch; }
+.diff { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-x: auto; max-height: 560px; overflow-y: auto; }
+.diff table { border-collapse: collapse; min-width: 100%; }
+.diff td { padding: 0 0.75rem; white-space: pre; vertical-align: top; }
+.diff td.sign { width: 1.5rem; padding-right: 0; user-select: none; text-align: center; color: var(--muted); }
+.diff tr.add { background: var(--add-bg); }
+.diff tr.add td { color: var(--add-fg); }
+.diff tr.add td.sign { color: var(--add-mark); }
+.diff tr.del { background: var(--del-bg); }
+.diff tr.del td { color: var(--del-fg); }
+.diff tr.del td.sign { color: var(--del-mark); }
+.diff tr.hunk td { color: var(--muted); background: var(--sunken); padding-block: 0.25rem; }
+.tok-kw { color: var(--code-kw); }
+.tok-str { color: var(--code-str); }
+.tok-num { color: var(--code-num); }
+.tok-com { color: var(--muted); font-style: italic; }
+tr.add .tok-kw, tr.add .tok-str, tr.add .tok-num, tr.del .tok-kw, tr.del .tok-str, tr.del .tok-num { color: inherit; font-weight: 500; }
+
+/* Charts */
+/* Grid children default to min-width:auto and would push the page wider
+   than a phone; scrollable content scrolls inside its own container. */
+.chart-card > *, .hero-grid > *, .bench-grid > *, .explorer > *, .cta-grid > *, .steps > *, .limits > * { min-width: 0; }
+.chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.25rem; display: grid; gap: 0.75rem; min-width: 0; position: relative; }
+.chart-title { font-weight: 600; }
+.chart-sub { color: var(--muted); font-size: var(--step--1); }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--muted); font-family: var(--mono); font-size: 12px; }
+.chart .label { fill: var(--ink); font-family: var(--body); font-size: 13px; }
+.chart .label.hi { font-weight: 600; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .chance { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+.chart .ci { stroke-width: 2; stroke-linecap: round; }
+.chart .hit { fill: transparent; cursor: default; }
+.tooltip { position: absolute; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.45; padding: 0.45rem 0.6rem; border-radius: 6px; max-width: 260px; font-family: var(--body); z-index: 5; }
+.tooltip b { font-weight: 600; }
+.bench-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.table-wrap { overflow-x: auto; }
+table.data { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+table.data th, table.data td { text-align: right; padding: 0.5rem 0.45rem; border-bottom: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data th { font-weight: 600; color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+table.data tr.hi td { font-weight: 600; }
+table.data tr.hi td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.footnote { color: var(--muted); font-size: var(--step--1); max-width: 80ch; }
+
+/* Controls */
+.controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.control { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.1rem; display: grid; gap: 0.75rem; align-content: start; min-width: 0; }
+.control pre { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.55; background: var(--sunken); padding: 0.7rem 0.8rem; border-radius: 6px; overflow-x: auto; }
+.control .row { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.control p { color: var(--muted); font-size: var(--step--1); }
+.callout { margin-top: 1.5rem; border-left: 3px solid var(--accent); padding: 0.25rem 0 0.25rem 1rem; max-width: 72ch; }
+
+/* How it works */
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; counter-reset: step; }
+.step { display: grid; gap: 0.6rem; align-content: start; }
+.step::before { counter-increment: step; content: "0" counter(step); font-family: var(--mono); color: var(--accent); font-size: var(--step--1); }
+.step p { color: var(--muted); }
+.limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2.5rem; margin-top: 3rem; }
+.limits div { display: grid; gap: 0.3rem; }
+.limits p { color: var(--muted); }
+
+/* Try it */
+.terminal { background: #0c1019; color: #d7dde8; border-radius: var(--radius); padding: 1.1rem 1.25rem; font-family: var(--mono); font-size: 13px; line-height: 1.75; overflow-x: auto; white-space: pre; }
+.terminal .c { color: #7d8799; }
+.terminal .p { color: #86b6ef; }
+.cta-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 2rem; align-items: center; }
+footer { padding-block: 2rem 3rem; color: var(--muted); font-size: var(--step--1); border-top: 1px solid var(--line); }
+
+@media (max-width: 900px) {
+  .hero-grid, .explorer, .bench-grid, .cta-grid { grid-template-columns: minmax(0, 1fr); }
+  .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .controls, .steps { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .stats { grid-template-columns: minmax(0, 1fr); }
+  .tabs { grid-template-columns: minmax(0, 1fr); }
+  .limits { grid-template-columns: minmax(0, 1fr); }
+  .topnav { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .needle { transition: transform 1.1s cubic-bezier(.2,.8,.2,1); }
+  .span-bar { transition: width 1.1s cubic-bezier(.2,.8,.2,1), x 1.1s cubic-bezier(.2,.8,.2,1); }
+}
+</style>
+
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark" aria-hidden="true"><span></span></div>slop referee</div>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#refactors">Refactors</a><a href="#says-no">It says no</a><a href="#benchmarks">Benchmarks</a><a href="#how">How it works</a><a href="#try">Try it</a>
+    </nav>
+  </header>
+</div>
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">A learned code-quality referee for slop</span>
+      <h1>Your linter passes. <em>Your code still reads badly.</em></h1>
+      <p class="lede prose">Slop's referee is a transformer trained on {{TRAIN_PAIRS}} real refactor commits from {{TRAIN_REPOS}} open-source repositories. It finds the code reviewers would flag, then lets a rewrite through only when the tests pass and the code reads measurably better.</p>
+      <div class="stats">
+        <div class="stat"><b class="num">0</b><span>rule-based findings in our own codebase before we started</span></div>
+        <div class="stat"><b class="num">4</b><span>refactors the referee found and accepted, every one CI-green</span></div>
+        <div class="stat"><b class="num">{{HEADLINE_ACC}}</b><span>accuracy picking the better version, on repositories it never saw</span></div>
+      </div>
+    </div>
+    <figure class="verdict" aria-label="Referee verdict for the fix batch refactor" style="margin:0">
+      <div class="verdict-head">
+        <div>
+          <div class="eyebrow">Verdict</div>
+          <h3 id="hero-title">Extract fix batch selection</h3>
+        </div>
+        <span class="badge keep">kept</span>
+      </div>
+      <div class="verdict-file">src/fixer.rs · apply_candidates</div>
+      <div class="track" id="hero-track"></div>
+      <div class="mini-diff" aria-label="Excerpt of the change">
+        <div style="background:var(--del-bg);color:var(--del-fg)">-        if let Some(group) = batch[0].group {</div>
+        <div style="background:var(--del-bg);color:var(--del-fg)">-            for pending in candidates.iter_mut().skip(index + 1) {</div>
+        <div style="background:var(--del-bg);color:var(--del-fg)">-                    batch.push(pending.take().expect("grouped candidate exists"));</div>
+        <div style="background:var(--add-bg);color:var(--add-fg)">+    let selected = select_disjoint_batches(candidates);</div>
+        <div style="background:var(--add-bg);color:var(--add-fg)">+    let applied = selected.len();</div>
+        <div style="background:var(--add-bg);color:var(--add-fg)">+    Ok((apply_edits(source, selected), applied))</div>
+      </div>
+      <div class="gates" aria-label="Checks passed">
+        <span class="gate">108 tests</span><span class="gate">clippy -D warnings</span><span class="gate">rustfmt</span><span class="gate">slop diff</span><span class="gate">referee +{{HERO_DELTA}}</span>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section id="refactors">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Run on this repository</span>
+      <h2>What it caught in a codebase that already passed every rule</h2>
+      <p class="lede prose">Slop's own repository had zero rule-based findings. The referee ranked every 50-line window, a person triaged the worst six, and each rewrite had to pass CI and score higher with comments stripped. Four made it. These are the real diffs.</p>
+    </div>
+    <div class="explorer">
+      <div class="tabs" role="tablist" aria-label="Accepted refactors" id="tabs"></div>
+      <div class="panel" role="tabpanel" id="panel" aria-live="polite"></div>
+    </div>
+    <div class="chart-card chart" style="margin-top:1.5rem" id="dumbbell-card">
+      <div>
+        <div class="chart-title">Referee score before and after each change</div>
+        <div class="chart-sub">Comments stripped. Higher reads more like code people refactor towards. Rejected changes went back out.</div>
+      </div>
+      <div id="dumbbell"></div>
+    </div>
+  </div>
+</section>
+
+<section id="says-no">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Negative controls</span>
+      <h2>A referee is only useful if it says no</h2>
+      <p class="lede prose">We fed it deliberately worse rewrites that keep behaviour identical. Clippy and the rule engine let most of them through.</p>
+    </div>
+    <div class="controls">
+      <article class="control">
+        <div class="row"><h3>Vague names</h3><span class="badge reject">rejected {{CTRL_NAMES}}</span></div>
+<pre>for x in data.lines() {
+    if let Some(path) = ARR.iter()
+        .find_map(|p| x.strip_prefix(p)) {
+        let tmp = path.trim();</pre>
+        <p>Clippy: passed. Rule engine: no new debt.</p>
+      </article>
+      <article class="control">
+        <div class="row"><h3>Narrated boilerplate</h3><span class="badge reject">rejected {{CTRL_VERBOSE}}</span></div>
+<pre>let output = match result {
+    Ok(value) => value,
+    Err(error) => return Err(error),
+};
+let is_success = output.status.success();
+if is_success == true {</pre>
+        <p>Clippy: rejected. Rule engine: no new debt.</p>
+      </article>
+      <article class="control">
+        <div class="row"><h3>Comments that add nothing</h3><span class="badge reject">no credit</span></div>
+<pre>// Check if the status is successful
+if output.status.success() {
+    // Return the output
+    return Ok(output);
+}</pre>
+        <p>Clippy: passed. Rule engine: no new debt.</p>
+      </article>
+    </div>
+    <p class="callout prose">Our first model scored that last example <b>+1.15</b>: refactor commits often add comments, so it learned to reward them. We caught it with these controls, reverted two of our own changes whose gains came only from doc comments, and retrained on comment-free code. The referee now judges structure. Comments are for people to review.</p>
+  </div>
+</section>
+
+<section id="benchmarks">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Benchmarks</span>
+      <h2>Which version is better? It picks the refactor {{HEADLINE_ACC}} of the time</h2>
+      <p class="lede prose">{{TEST_PAIRS}} refactor commits from repositories held out of training. Each method sees the before and after code and picks the better one. Chance is 50%.</p>
+    </div>
+    <div class="bench-grid">
+      <div class="chart-card chart">
+        <div>
+          <div class="chart-title">Picks the refactored version</div>
+          <div class="chart-sub">Held-out repositories, 95% bootstrap interval</div>
+        </div>
+        <div id="dots"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">By language</div>
+        <div class="table-wrap"><table class="data" id="by-lang"></table></div>
+        <p class="footnote">Control column: how often a method prefers the newer version of ordinary bug-fix and feature commits ({{CONTROL_PAIRS}} pairs). A quality signal has no reason to; near 50% means it is not just detecting newer or longer code.</p>
+      </div>
+    </div>
+    <p class="footnote" style="margin-top:1.25rem">Rule engine: slop's file-local debt points on the whole file. Surface statistics: logistic regression on 14 style measures (indentation, line length, nesting, identifier length, branch density). Repositories are split by hash, so no repository contributes to both training and test. Commit messages are noisy labels, so no method should approach 100% here.</p>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">How it works</span>
+      <h2>Trained on how developers actually clean up code</h2>
+    </div>
+    <div class="steps">
+      <div class="step"><h3>Learn from refactor commits</h3><p>Every commit titled "refactor", "simplify" or "extract helper" is a developer saying the new code is better than the old. We mine aligned before/after windows from CommitPack, strip comments, and split by repository.</p></div>
+      <div class="step"><h3>Rank the before and after</h3><p>A 125M-parameter code encoder (UniXcoder) is fine-tuned so the refactored window scores higher than the original. The score is learned, not hand-written, so it catches what no rule names.</p></div>
+      <div class="step"><h3>Referee every rewrite</h3><p>Hotspots are ranked across your tree. Any rewrite, from a person or an AI agent, must pass tests, clippy, rustfmt and slop's rules, and must raise the referee score of every region it touched.</p></div>
+    </div>
+    <div class="limits">
+      <div><h3>It judges, it does not write</h3><p>Rewrites come from you or your coding agent. The referee decides which ones are worth keeping.</p></div>
+      <div><h3>It never checks behaviour</h3><p>Tests, clippy and slop's proof-checked rules guard behaviour. Untested code gets characterisation tests before it changes.</p></div>
+      <div><h3>Local design, not system design</h3><p>It reads about 50 lines at a time. Dependency cycles, coupling and layering stay with slop's repository graph rules.</p></div>
+      <div><h3>Hotspots need a human look</h3><p>Two of the top six windows in our own repo were false positives: a textbook graph algorithm and raw test fixtures.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="try">
+  <div class="wrap cta-grid">
+    <div style="display:grid;gap:1rem">
+      <span class="eyebrow">Try it</span>
+      <h2>Point it at your worst file</h2>
+      <p class="lede">The pipeline, training code and gate are open source in <code>ml/</code>.</p>
+      <p><a href="https://github.com/hellosoftwareuk/ai-slop-linter">github.com/hellosoftwareuk/ai-slop-linter</a></p>
+    </div>
+<div class="terminal" aria-label="Example commands"><span class="c"># rank the worst-reading windows in a tree</span>
+<span class="p">$</span> python ml/refactor_loop.py hotspots --model model.pt src --top 10
+
+<span class="c"># rewrite one, then let the referee decide</span>
+<span class="p">$</span> MODEL=model.pt ml/gate.sh
+== tests          ok. 108 passed
+== clippy         ok
+== slop           No new slop introduced.
+== learned judge  net +6.17 -> keep</div>
+  </div>
+</section>
+
+<div class="wrap"><footer>slop referee · results from runs on {{RUN_DATE}} · every number on this page comes from the repository's own benchmark scripts.</footer></div>
+
+<script>
+const DIFFS = {{DIFFS_JSON}};
+const BENCH = {{BENCH_JSON}};
+const REJECTED = [
+  { title: "Rename edit-distance indices", path: "src/analyzer/typescript_key_remap.rs", before: null, after: null, delta: -0.10 },
+  { title: "Closure helper for frame updates", path: "src/analyzer/core.rs", before: null, after: null, delta: -1.02 },
+];
+
+const SCALE = { min: -8, max: 8 };
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const fmt = v => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2);
+const pct = v => (v * 100).toFixed(1) + "%";
+
+/* Score track: the -8..+8 referee scale with an animated before→after span. */
+function track(el, before, after, animate) {
+  const W = 420, H = 58, pad = 14;
+  const x = v => pad + (v - SCALE.min) / (SCALE.max - SCALE.min) * (W - 2 * pad);
+  const ticks = [-8, -4, 0, 4, 8];
+  const lo = Math.min(before, after), hi = Math.max(before, after);
+  el.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Referee score moved from ${fmt(before)} to ${fmt(after)}">
+      <line x1="${pad}" x2="${W - pad}" y1="26" y2="26" stroke="var(--line)" stroke-width="6" stroke-linecap="round"/>
+      ${ticks.map(t => `<line x1="${x(t)}" x2="${x(t)}" y1="${t === 0 ? 16 : 20}" y2="${t === 0 ? 36 : 32}" stroke="var(--muted)" stroke-width="1"/>
+        <text x="${x(t)}" y="52" text-anchor="middle" fill="var(--muted)" font-family="var(--mono)" font-size="11">${t > 0 ? "+" + t : t}</text>`).join("")}
+      <rect class="span-bar" x="${x(lo)}" y="23" width="${animate ? 0 : x(hi) - x(lo)}" height="6" rx="3" fill="var(--accent-soft)"/>
+      <circle cx="${x(before)}" cy="26" r="6" fill="var(--surface)" stroke="var(--context)" stroke-width="2"/>
+      <g class="needle" style="transform: translateX(${animate ? 0 : x(after) - x(before)}px)">
+        <circle cx="${x(before)}" cy="26" r="7" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+      </g>
+    </svg>
+    <div class="track-label"><span>before ${fmt(before)}</span><span>after ${fmt(after)} · Δ ${fmt(after - before)}</span></div>`;
+  if (animate) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelector(".span-bar").setAttribute("width", x(hi) - x(lo));
+      el.querySelector(".needle").style.transform = `translateX(${x(after) - x(before)}px)`;
+    }));
+  }
+}
+
+/* Minimal Rust highlighting, applied after escaping. */
+const KW = /\b(fn|let|mut|if|else|for|in|while|loop|match|return|continue|break|impl|pub|struct|enum|use|mod|const|static|Some|None|Ok|Err|Self|self|as|where|move|ref|async|await|super|crate|true|false)\b/g;
+function highlight(code) {
+  const parts = [];
+  let rest = code;
+  const re = /("(?:[^"\\]|\\.)*")|(\/\/.*$)/;
+  let m;
+  while ((m = re.exec(rest))) {
+    parts.push(["code", rest.slice(0, m.index)]);
+    parts.push([m[1] ? "str" : "com", m[0]]);
+    rest = rest.slice(m.index + m[0].length);
+  }
+  parts.push(["code", rest]);
+  return parts.map(([kind, text]) => {
+    const safe = esc(text);
+    if (kind === "str") return `<span class="tok-str">${safe}</span>`;
+    if (kind === "com") return `<span class="tok-com">${safe}</span>`;
+    return safe.replace(KW, '<span class="tok-kw">$1</span>').replace(/\b(\d+)\b/g, '<span class="tok-num">$1</span>');
+  }).join("");
+}
+
+function renderDiff(diff) {
+  const rows = diff.split("\n").map(line => {
+    if (line.startsWith("@@")) {
+      const ctx = line.replace(/^@@[^@]*@@\s?/, "");
+      return `<tr class="hunk"><td class="sign"></td><td>${esc(ctx || "⋯")}</td></tr>`;
+    }
+    const sign = line[0] || " ";
+    const cls = sign === "+" ? "add" : sign === "-" ? "del" : "";
+    return `<tr class="${cls}"><td class="sign">${sign === " " ? "" : esc(sign)}</td><td>${highlight(line.slice(1))}</td></tr>`;
+  });
+  return `<table>${rows.join("")}</table>`;
+}
+
+function renderPanel(item, animate) {
+  const panel = document.getElementById("panel");
+  panel.innerHTML = `
+    <div class="panel-head">
+      <div class="verdict-head">
+        <div><div class="verdict-file">${esc(item.path)} · <span class="num">+${item.adds} −${item.dels}</span> · ${item.sha}</div><h3>${esc(item.title)}</h3></div>
+        <span class="badge keep">kept · Δ ${fmt(item.after - item.before)}</span>
+      </div>
+      <p class="panel-why">${esc(item.why)}</p>
+      <div class="track" id="panel-track"></div>
+      <div class="gates"><span class="gate">tests</span><span class="gate">clippy</span><span class="gate">rustfmt</span><span class="gate">slop diff</span><span class="gate">zero-slop gate</span><span class="gate">referee</span></div>
+    </div>
+    <div class="diff">${renderDiff(item.diff)}</div>`;
+  track(document.getElementById("panel-track"), item.before, item.after, animate);
+}
+
+function renderTabs() {
+  const tabs = document.getElementById("tabs");
+  tabs.innerHTML = DIFFS.map((d, i) => `
+    <button class="tab" role="tab" id="tab-${i}" aria-selected="${i === 0}" aria-controls="panel">
+      <span class="tab-title">${esc(d.title)}</span>
+      <span class="tab-meta"><span>${esc(d.path.replace("src/", ""))}</span><span class="up num">Δ ${fmt(d.after - d.before)}</span></span>
+    </button>`).join("");
+  tabs.querySelectorAll(".tab").forEach((tab, i) => tab.addEventListener("click", () => {
+    tabs.querySelectorAll(".tab").forEach(t => t.setAttribute("aria-selected", "false"));
+    tab.setAttribute("aria-selected", "true");
+    renderPanel(DIFFS[i], true);
+  }));
+  tabs.addEventListener("keydown", e => {
+    const all = [...tabs.querySelectorAll(".tab")];
+    const i = all.indexOf(document.activeElement);
+    if (i < 0) return;
+    const next = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+    if (next) { e.preventDefault(); const t = all[(i + next + all.length) % all.length]; t.focus(); t.click(); }
+  });
+}
+
+/* Shared tooltip */
+function tooltipFor(card) {
+  const tip = document.createElement("div");
+  tip.className = "tooltip"; tip.hidden = true; card.appendChild(tip);
+  return {
+    show(html, evt) {
+      tip.innerHTML = html; tip.hidden = false;
+      const r = card.getBoundingClientRect();
+      const px = Math.min(evt.clientX - r.left + 12, r.width - tip.offsetWidth - 8);
+      tip.style.left = Math.max(8, px) + "px";
+      tip.style.top = (evt.clientY - r.top + 14) + "px";
+    },
+    hide() { tip.hidden = true; },
+  };
+}
+
+/* Dumbbell: before → after per change, kept and rejected. */
+function renderDumbbell() {
+  const rows = [
+    ...DIFFS.map(d => ({ label: d.title, before: d.before, after: d.after, kept: true })),
+    ...REJECTED.map(d => ({ label: d.title, delta: d.delta, kept: false })),
+  ];
+  const W = 760, rowH = 34, top = 10, left = 250, right = 70, H = top + rows.length * rowH + 30;
+  const x = v => left + (v - SCALE.min) / (SCALE.max - SCALE.min) * (W - left - right);
+  const ticks = [-8, -4, 0, 4, 8];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Referee score before and after each change">`;
+  ticks.forEach(t => { svg += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top}" y2="${H - 24}"/><text x="${x(t)}" y="${H - 6}" text-anchor="middle">${t > 0 ? "+" + t : t}</text>`; });
+  rows.forEach((r, i) => {
+    const y = top + i * rowH + rowH / 2;
+    svg += `<text class="label${r.kept ? " hi" : ""}" x="0" y="${y + 4}">${esc(r.label)}</text>`;
+    if (r.kept) {
+      svg += `<line x1="${x(r.before)}" x2="${x(r.after)}" y1="${y}" y2="${y}" stroke="var(--accent-soft)" stroke-width="2"/>
+        <circle cx="${x(r.before)}" cy="${y}" r="5" fill="var(--surface)" stroke="var(--context)" stroke-width="2"/>
+        <circle cx="${x(r.after)}" cy="${y}" r="6" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+        <text x="${x(Math.max(r.before, r.after)) + 12}" y="${y + 4}">${fmt(r.after - r.before)}</text>`;
+    } else {
+      svg += `<text x="${x(0) + 8}" y="${y + 4}" fill="var(--reject)">rejected, Δ ${fmt(r.delta)}</text>`;
+    }
+    svg += `<rect class="hit" x="0" y="${y - rowH / 2}" width="${W}" height="${rowH}" data-i="${i}"/>`;
+  });
+  svg += `</svg>`;
+  const host = document.getElementById("dumbbell");
+  host.innerHTML = `<div style="overflow-x:auto"><div style="min-width:560px">${svg}</div></div>`;
+  const tip = tooltipFor(document.getElementById("dumbbell-card"));
+  host.querySelectorAll(".hit").forEach(rect => {
+    const r = rows[+rect.dataset.i];
+    rect.addEventListener("mousemove", e => tip.show(r.kept
+      ? `<b>${esc(r.label)}</b><br>before ${fmt(r.before)} → after ${fmt(r.after)}<br>Δ ${fmt(r.after - r.before)}, kept`
+      : `<b>${esc(r.label)}</b><br>Δ ${fmt(r.delta)} with comments stripped<br>reverted`, e));
+    rect.addEventListener("mouseleave", () => tip.hide());
+  });
+}
+
+/* Dot plot with 95% interval whiskers; the referee is the only accent mark. */
+function renderDots() {
+  const rows = BENCH.methods;
+  const W = 640, rowH = 46, top = 16, left = 170, right = 24, H = top + rows.length * rowH + 34;
+  const lo = 0.4, hi = 0.75;
+  const x = v => left + (v - lo) / (hi - lo) * (W - left - right);
+  const ticks = [0.4, 0.5, 0.6, 0.7];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pairwise accuracy by method with 95% intervals">`;
+  ticks.forEach(t => { svg += `<line class="grid" x1="${x(t)}" x2="${x(t)}" y1="${top - 6}" y2="${H - 28}"/><text x="${x(t)}" y="${H - 8}" text-anchor="middle">${Math.round(t * 100)}%</text>`; });
+  svg += `<line class="chance" x1="${x(0.5)}" x2="${x(0.5)}" y1="${top - 10}" y2="${H - 28}"/><text x="${x(0.5) + 6}" y="${top - 2}" text-anchor="start">chance</text>`;
+  rows.forEach((r, i) => {
+    const y = top + i * rowH + rowH / 2 + 6;
+    const color = r.highlight ? "var(--accent)" : "var(--context)";
+    svg += `<text class="label${r.highlight ? " hi" : ""}" x="0" y="${y + 4}">${esc(r.name)}</text>
+      <line class="ci" x1="${x(r.low)}" x2="${x(r.high)}" y1="${y}" y2="${y}" stroke="${color}"/>
+      <circle cx="${x(r.acc)}" cy="${y}" r="${r.highlight ? 7 : 5.5}" fill="${color}" stroke="var(--surface)" stroke-width="2"/>
+      <text x="${x(r.high) + 8}" y="${y + 4}" ${r.highlight ? 'style="fill:var(--ink);font-weight:500"' : ""}>${pct(r.acc)}</text>
+      <rect class="hit" x="0" y="${y - rowH / 2}" width="${W}" height="${rowH}" data-i="${i}"/>`;
+  });
+  svg += `</svg>`;
+  const host = document.getElementById("dots");
+  host.innerHTML = svg;
+  const tip = tooltipFor(host.closest(".chart-card"));
+  host.querySelectorAll(".hit").forEach(rect => {
+    const r = rows[+rect.dataset.i];
+    rect.addEventListener("mousemove", e => tip.show(`<b>${esc(r.name)}</b><br>${pct(r.acc)} of ${BENCH.testPairs.toLocaleString()} held-out refactors<br>95% interval ${pct(r.low)} to ${pct(r.high)}<br>prefers newer on controls: ${pct(r.control)}`, e));
+    rect.addEventListener("mouseleave", () => tip.hide());
+  });
+}
+
+function renderLangTable() {
+  const langs = BENCH.languages;
+  const head = `<thead><tr><th>Method</th>${langs.map(l => `<th>${l}</th>`).join("")}<th>Control</th></tr></thead>`;
+  const body = BENCH.methods.map(m => `<tr class="${m.highlight ? "hi" : ""}"><td>${esc(m.name)}</td>${langs.map(l => `<td>${pct(m.byLang[l])}</td>`).join("")}<td>${pct(m.control)}</td></tr>`).join("");
+  document.getElementById("by-lang").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+renderTabs();
+renderPanel(DIFFS[0], false);
+track(document.getElementById("hero-track"), DIFFS[0].before, DIFFS[0].after, false);
+renderDumbbell();
+renderDots();
+renderLangTable();
+</script>

@@ -97,6 +97,37 @@ def fit_surface_baseline(train: list[dict]):
     return lambda code: float(classifier.decision_function(scaler.transform([surface_features(code)]))[0])
 
 
+def report_combined(model, tokenizer, max_length, args, surface, rows, before, after) -> None:
+    """Blend transformer and surface-feature scores, fitted on validation only.
+
+    If the blend beats both parts on the test split, the transformer carries
+    information the surface statistics do not.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    from train import score_texts
+
+    val = [json.loads(line) for line in open(f"{args.data}/val.jsonl")]
+    val = [row for row in val if row["kind"] == "refactor"]
+    val_before = score_texts(model, tokenizer, [r["before"] for r in val], max_length)
+    val_after = score_texts(model, tokenizer, [r["after"] for r in val], max_length)
+
+    def deltas(pairs, model_before, model_after):
+        return np.array([
+            [a - b, surface(row["after"]) - surface(row["before"])]
+            for row, b, a in zip(pairs, model_before, model_after)
+        ])
+
+    x = deltas(val, val_before, val_after)
+    blend = LogisticRegression(fit_intercept=False).fit(
+        np.vstack([x, -x]), np.r_[np.ones(len(x)), np.zeros(len(x))]
+    )
+    weights = blend.coef_[0]
+    print(f"  blend weights (fitted on val): transformer {weights[0]:+.3f}, surface {weights[1]:+.3f}")
+    combined = deltas(rows, before, after) @ weights
+    report("transformer + surface", rows, [0.0] * len(rows), list(combined))
+
+
 def load_model(path: str):
     import torch
     from transformers import AutoTokenizer
@@ -152,6 +183,7 @@ def main() -> None:
         before = score_texts(model, tokenizer, [r["before"] for r in rows], max_length)
         after = score_texts(model, tokenizer, [r["after"] for r in rows], max_length)
         report("transformer", rows, before, after)
+        report_combined(model, tokenizer, max_length, args, surface, rows, before, after)
         decided = [i for i, r in enumerate(rows) if r["kind"] == "refactor" and r["slop_before"] != r["slop_after"]]
         agree = [(after[i] > before[i]) == (rows[i]["slop_after"] < rows[i]["slop_before"]) for i in decided]
         if agree:

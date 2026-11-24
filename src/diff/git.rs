@@ -385,44 +385,58 @@ fn read_blob_responses(
     entries: &[BlobEntry],
     destination: &Path,
 ) -> Result<()> {
-    let mut header = String::new();
     for entry in entries {
-        header.clear();
-        if reader.read_line(&mut header)? == 0 {
-            bail!("Git batch output ended before '{}'", entry.path.display());
-        }
-        let fields = header.split_whitespace().collect::<Vec<_>>();
-        if fields.len() != 3 || fields[1] != "blob" {
-            bail!(
-                "Git could not read '{}': {}",
-                entry.path.display(),
-                header.trim()
-            );
-        }
-        let size = fields[2]
-            .parse::<usize>()
-            .context("Git returned an invalid blob size")?;
-        if u64::try_from(size) != Ok(entry.size) {
-            bail!("Git returned the wrong size for '{}'", entry.path.display());
-        }
-        let mut content = vec![0; size];
-        reader.read_exact(&mut content)?;
-        let mut newline = [0];
-        reader.read_exact(&mut newline)?;
-        if newline[0] != b'\n' {
-            bail!(
-                "Git returned malformed content for '{}'",
-                entry.path.display()
-            );
-        }
-        let target = destination.join(&entry.path);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&target, content)
-            .with_context(|| format!("cannot materialize '{}'", entry.path.display()))?;
+        let content = read_blob(reader, entry)?;
+        materialize_blob(destination, entry, &content)?;
     }
     Ok(())
+}
+
+/// Reads one `git cat-file --batch` response: `<oid> blob <size>\n<content>\n`.
+fn read_blob(reader: &mut impl BufRead, entry: &BlobEntry) -> Result<Vec<u8>> {
+    let size = read_blob_header(reader, entry)?;
+    let mut content = vec![0; size];
+    reader.read_exact(&mut content)?;
+    let mut terminator = [0];
+    reader.read_exact(&mut terminator)?;
+    if terminator != *b"\n" {
+        bail!(
+            "Git returned malformed content for '{}'",
+            entry.path.display()
+        );
+    }
+    Ok(content)
+}
+
+fn read_blob_header(reader: &mut impl BufRead, entry: &BlobEntry) -> Result<usize> {
+    let mut header = String::new();
+    if reader.read_line(&mut header)? == 0 {
+        bail!("Git batch output ended before '{}'", entry.path.display());
+    }
+    let fields = header.split_whitespace().collect::<Vec<_>>();
+    let [_, "blob", size] = fields.as_slice() else {
+        bail!(
+            "Git could not read '{}': {}",
+            entry.path.display(),
+            header.trim()
+        );
+    };
+    let size = size
+        .parse::<usize>()
+        .context("Git returned an invalid blob size")?;
+    if u64::try_from(size) != Ok(entry.size) {
+        bail!("Git returned the wrong size for '{}'", entry.path.display());
+    }
+    Ok(size)
+}
+
+fn materialize_blob(destination: &Path, entry: &BlobEntry, content: &[u8]) -> Result<()> {
+    let target = destination.join(&entry.path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&target, content)
+        .with_context(|| format!("cannot materialize '{}'", entry.path.display()))
 }
 
 fn git_output(root: &Path, arguments: &[&str]) -> Result<Output> {

@@ -6,3 +6,4 @@ ml/data/
 ml/pairs*/
 ml/*.pt
 ml/*.log
+ml/__pycache__/

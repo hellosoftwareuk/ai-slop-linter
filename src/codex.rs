@@ -284,13 +284,8 @@ fn collect_path_fields(value: &Value, paths: &mut BTreeSet<String>) {
     match value {
         Value::Object(object) => {
             for (key, value) in object {
-                if matches!(
-                    key.as_str(),
-                    "path" | "file" | "file_path" | "filePath" | "target_path" | "targetPath"
-                ) {
-                    if let Some(path) = value.as_str() {
-                        paths.insert(path.to_owned());
-                    }
+                if let Some(path) = path_field(key, value) {
+                    paths.insert(path.to_owned());
                 }
                 collect_path_fields(value, paths);
             }
@@ -301,6 +296,23 @@ fn collect_path_fields(value: &Value, paths: &mut BTreeSet<String>) {
             }
         }
         _ => {}
+    }
+}
+
+/// The value of a tool-input field whose name says it holds a file path.
+fn path_field<'a>(key: &str, value: &'a Value) -> Option<&'a str> {
+    const PATH_KEYS: &[&str] = &[
+        "path",
+        "file",
+        "file_path",
+        "filePath",
+        "target_path",
+        "targetPath",
+    ];
+    if PATH_KEYS.contains(&key) {
+        value.as_str()
+    } else {
+        None
     }
 }
 
